@@ -15,11 +15,19 @@
 // completion, so "100% download ≠ go": the bar can sit at 100% while a hidden step is
 // still pending, and only the parent's hand-off on `canHandOff` dismisses the shell.
 
-import { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { useMemo, type ComponentType } from 'react';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { type GateState, type GateStep } from '@paxpia/core';
 import { Avatar } from '../components/Avatar';
 import { colors } from '../theme/tokens';
+
+/** The minimal Pressable contract this shell needs. Deliberately loose (props: any) so
+ *  BOTH react-native's `Pressable` AND RNGH's `Pressable` (slightly different event +
+ *  style prop types) satisfy it. Mobile injects RNGH's `Pressable` (so the tap is routed
+ *  inside the viewer's fullScreenModal GestureHandlerRootView); web/default falls back to
+ *  react-native('-web')'s `Pressable`. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type PressableLike = ComponentType<any>;
 
 export interface EntryGateProps {
   /** The gate machine's current state (steps + phase + canHandOff). */
@@ -30,8 +38,21 @@ export interface EntryGateProps {
   name?: string;
   /** The feed title, under the avatar. */
   title?: string;
-  /** Branding wordmark (defaults to "Paxpia"). */
+  /** Branding wordmark fallback (defaults to "Paxpia") — only used when no
+   *  `streamerName` is supplied. */
   brand?: string;
+  /** The STREAMER'S username. When present it REPLACES the "Paxpia" wordmark (the user
+   *  already knows the app — show who they're waiting on) and, with `onPressStreamer`,
+   *  makes the avatar + @username one tap target to the streamer's profile so they can
+   *  browse the streamer's posts while the join/download completes. */
+  streamerName?: string;
+  /** Tap handler for the avatar + @username block → the streamer's profile. When
+   *  omitted the identity renders inert (no tap). */
+  onPressStreamer?: () => void;
+  /** Injected Pressable so the tap is ROUTED inside the host's gesture system. Mobile
+   *  passes RNGH's `Pressable` (the viewer is a hoisted fullScreenModal where RN's
+   *  Pressable isn't RNGH-routed); web omits it and gets RN-web's `Pressable`. */
+  PressableComponent?: PressableLike;
 }
 
 /** Overall progress 0..1 across the gate. We blend the explicit download % (the
@@ -71,29 +92,64 @@ function ChecklistRow({ step }: { step: GateStep }) {
   );
 }
 
-export function EntryGate({ gate, avatarUri, name, title, brand = 'Paxpia' }: EntryGateProps) {
+export function EntryGate({
+  gate,
+  avatarUri,
+  name,
+  title,
+  brand = 'Paxpia',
+  streamerName,
+  onPressStreamer,
+  PressableComponent,
+}: EntryGateProps) {
   // Only the VISIBLE steps render in the checklist (hidden readiness gates advance
   // canHandOff but don't clutter the UI).
   const visibleSteps = useMemo(() => gate.steps.filter((s) => s.visible), [gate.steps]);
   const progress = useMemo(() => gateProgress(gate.steps), [gate.steps]);
   const failed = gate.phase === 'failed';
 
+  // The wordmark is now the STREAMER'S username (the user knows the app); fall back to
+  // the `brand` ("Paxpia") only when no streamer is supplied. The avatar + this username
+  // form ONE tap target to the streamer's profile when a handler is supplied.
+  const Touchable: PressableLike = PressableComponent ?? Pressable;
+  const streamerLabel = streamerName ? `@${streamerName}` : brand;
+  const canOpenProfile = !!streamerName && !!onPressStreamer;
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log('[Gate]', 'EntryGate label', `streamerName=${streamerName ?? ''}`, `wordmark=${streamerLabel}`, `clickable=${canOpenProfile}`);
+  }
+  const handlePressStreamer = () => {
+    if (!canOpenProfile) return;
+    if (typeof __DEV__ !== 'undefined' && __DEV__) console.log('[Gate]', 'tap streamer → profile', `username=${streamerName ?? ''}`);
+    onPressStreamer?.();
+  };
+
   return (
     <View style={styles.root}>
       {/* Center: avatar circle + feed title. */}
       <View style={styles.center}>
-        <Avatar uri={avatarUri} name={name} size={96} ring />
+        {/* Avatar + @username = ONE tap target → the streamer's profile (browse their
+            posts while the join/download finishes). Inert when no streamer/handler. */}
+        <Touchable
+          onPress={handlePressStreamer}
+          disabled={!canOpenProfile}
+          hitSlop={10}
+          accessibilityRole={canOpenProfile ? 'link' : undefined}
+          accessibilityLabel={streamerName ? `Open @${streamerName} profile` : undefined}
+          style={styles.identity}
+        >
+          <Avatar uri={avatarUri} name={name} size={96} ring />
+          {/* Streamer username REPLACES the "Paxpia" wordmark. */}
+          <View style={styles.logoRow}>
+            <Text style={styles.logoGlyph}>▶</Text>
+            <Text style={styles.wordmark}>{streamerLabel}</Text>
+          </View>
+        </Touchable>
+
         {title ? (
           <Text style={styles.title} numberOfLines={2}>
             {title}
           </Text>
         ) : null}
-
-        {/* Logo / wordmark. */}
-        <View style={styles.logoRow}>
-          <Text style={styles.logoGlyph}>▶</Text>
-          <Text style={styles.wordmark}>{brand}</Text>
-        </View>
 
         {/* Progress bar — real, smoothed % blended across all steps. */}
         <View style={styles.barTrack}>
@@ -116,6 +172,7 @@ export function EntryGate({ gate, avatarUri, name, title, brand = 'Paxpia' }: En
 const styles = StyleSheet.create({
   root: { ...StyleSheet.absoluteFillObject, backgroundColor: '#0a0816', overflow: 'hidden' },
   center: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, rowGap: 14 },
+  identity: { alignItems: 'center', rowGap: 12 },
   title: { color: '#fff', fontSize: 16, fontWeight: '800', textAlign: 'center' },
   logoRow: { flexDirection: 'row', alignItems: 'center', columnGap: 7 },
   logoGlyph: { color: colors.live, fontSize: 18 },
