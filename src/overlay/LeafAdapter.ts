@@ -60,6 +60,15 @@ export interface WebViewHostProps {
   /** A presigned material URL to open (raw PDF/EPUB the host renders). Mutually
    *  exclusive with `html`. */
   url?: string;
+  /** The view mode for a PDF/EPUB leaf: 'single' renders ONE server-synced page
+   *  (prev/next); 'scroll' renders the WHOLE document as one continuous, page-culled
+   *  scroll with NO nested scrollbar. The leaf rebuilds its bootstrap on a mode
+   *  change. Absent ⇒ 'single' (back-compat). */
+  mode?: 'single' | 'scroll';
+  /** The server-synced 0-based page (single mode) the leaf should display / scroll to. */
+  page?: number;
+  /** Total page count (scroll mode lays out this many page slots; single mode clamps). */
+  pageCount?: number;
   /** Bridged from INSIDE the WebView on the first real interaction → flips takeover
    *  without the shell stealing the WebView's scroll/zoom. */
   onUserInteract?(): void;

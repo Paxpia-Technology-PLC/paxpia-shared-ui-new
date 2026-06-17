@@ -42,6 +42,7 @@ import {
   zoomByFactor,
   type DocPresenterState,
   type DocRenderPlan,
+  type DocViewMode,
   type DocViewport,
 } from '@paxpia/core';
 import type { LeafAdapter } from './LeafAdapter';
@@ -66,6 +67,13 @@ export interface DocOverlayProps {
   /** Page nav (authoring/streamer). Omit on viewers so the page stays server-synced;
    *  the chrome still shows the count. */
   onPageNav?: (nextPage: number) => void;
+  /** The single/scroll view mode the streamer is broadcasting (rides the presenter).
+   *  When NOT taken over, the local mode mirrors this; absent ⇒ 'single'. */
+  mode?: DocViewMode;
+  /** Called when the user toggles single ⇆ scroll. On a streamer this rebroadcasts;
+   *  on a viewer this is a local takeover (the parent records the local mode). Omit to
+   *  HIDE the toggle entirely (e.g. an image doc, where scroll mode is meaningless). */
+  onModeChange?: (m: DocViewMode) => void;
   /** Whether the chrome should render its fullscreen/refit control. */
   chrome?: { fullscreen?: boolean };
   /** The injected leaf (image + WebView host). The ONLY per-platform decode. */
@@ -79,6 +87,8 @@ export function DocOverlay({
   onTakeOver,
   onResync,
   onPageNav,
+  mode,
+  onModeChange,
   chrome,
   leaf,
 }: DocOverlayProps) {
@@ -90,6 +100,27 @@ export function DocOverlay({
   // PDF + EPUB leaves own their own scroll/zoom, so the pan/zoom transform applies
   // only to the image path (web parity: `transformable`).
   const transformable = isImage;
+  // The single/scroll toggle only makes sense for the paged WebView leaves (PDF/EPUB);
+  // an image doc has nothing to scroll, so the toggle is hidden there.
+  const supportsMode = isPdf || isEpub;
+  // Effective mode: the streamer's synced mode (mirrored) unless a viewer has locally
+  // toggled. We honour the prop `mode` (the source of truth the parent owns) and fall
+  // back to 'single'. When the parent doesn't manage mode (no onModeChange), keep a
+  // local mode so the toggle still works on a standalone surface (DevDocTest).
+  const [localMode, setLocalMode] = useState<DocViewMode>(mode ?? 'single');
+  // Mirror the prop when the parent drives it (and we're not locally diverging).
+  useEffect(() => {
+    if (mode) setLocalMode(mode);
+  }, [mode]);
+  const viewMode: DocViewMode = supportsMode ? localMode : 'single';
+  const changeMode = (m: DocViewMode) => {
+    if (m === viewMode) return;
+    setLocalMode(m);
+    // A viewer toggling mode = a local takeover (defer the streamer); the parent also
+    // records the chosen mode so it can rebroadcast (streamer) or remember (viewer).
+    if (isViewer && !takenOverRef.current) onTakeOverRef.current?.();
+    onModeChange?.(m);
+  };
 
   // A viewer surface = one that can take over (onTakeOver supplied; the streamer
   // passes onPageNav and never takes over its own doc).
@@ -197,17 +228,20 @@ export function DocOverlay({
     <View style={styles.root}>
       <View style={styles.viewport} onLayout={onViewportLayout}>
         {isPdf && src ? (
-          // RAW PDF: the injected WebView host rasterizes the synced page. It owns its
-          // own scroll/zoom, so it's rendered DIRECTLY (no pan wrapper). Takeover is
-          // signalled from inside via onUserInteract (§6b).
+          // RAW PDF: the injected WebView host rasterizes the synced page (single mode)
+          // or the whole doc as one culled scroll (scroll mode). It owns its own
+          // scroll/zoom, so it's rendered DIRECTLY (no pan wrapper). Takeover is
+          // signalled from inside via onUserInteract (§6b). The view MODE + the synced
+          // page + pageCount drive which bootstrap the leaf builds.
           <View style={styles.leafFill}>
-            <WebViewHost url={src} onUserInteract={onLeafInteract} />
+            <WebViewHost url={src} mode={viewMode} page={page} pageCount={pageCount} onUserInteract={onLeafInteract} />
           </View>
         ) : isEpub && src ? (
-          // RAW EPUB: the injected WebView host opens the reader (reflowable; the
-          // reader owns pagination). Rendered directly; takeover from inside.
+          // RAW EPUB: the injected WebView host opens the reader. Single mode paginates
+          // by section (prev/next + page-sync); scroll mode is one continuous reader
+          // with NO nested scrollbar. Rendered directly; takeover from inside.
           <View style={styles.leafFill}>
-            <WebViewHost url={src} onUserInteract={onLeafInteract} />
+            <WebViewHost url={src} mode={viewMode} page={page} pageCount={pageCount} onUserInteract={onLeafInteract} />
           </View>
         ) : isImage && src ? (
           // IMAGE (a pre-rendered page JPEG, an uploaded slide, or a raw image) — the
@@ -248,9 +282,10 @@ export function DocOverlay({
         ) : null}
       </View>
 
-      {/* The ALWAYS-shown chrome: filename + "X / Y" + (image-only) zoom/fullscreen.
-          PDF/EPUB leaves own their own zoom, so the zoom strip is hidden for them —
-          but the filename + count ALWAYS show (web parity §6c). */}
+      {/* The ALWAYS-shown chrome: filename + "X / Y" + the single/scroll TOGGLE (for
+          PDF/EPUB) + (image-only) zoom/fullscreen. PDF/EPUB leaves own their own zoom,
+          so the zoom strip is hidden for them — but the filename + count + mode toggle
+          ALWAYS show (web parity §6c). */}
       <DocChrome
         filename={title}
         page={page}
@@ -259,6 +294,8 @@ export function DocOverlay({
         onZoom={transformable ? buttonZoom : undefined}
         onFullscreen={transformable && chrome?.fullscreen !== false ? refit : undefined}
         onPageNav={onPageNav}
+        mode={viewMode}
+        onModeChange={supportsMode ? changeMode : undefined}
       />
     </View>
   );

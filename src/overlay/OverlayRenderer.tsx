@@ -20,7 +20,7 @@
 // non-interactive preview (authoring editors) — empty tallies, vote is a no-op.
 
 import { View, Text, StyleSheet } from 'react-native';
-import type { DocPresenterState, DocRenderPlan, OverlayInstance, OverlayViewProps } from '@paxpia/core';
+import type { DocPresenterState, DocRenderPlan, DocViewMode, OverlayInstance, OverlayViewProps } from '@paxpia/core';
 import type { LeafAdapter } from './LeafAdapter';
 import { ParticipationOverlay } from './ParticipationOverlay';
 import { DocOverlay } from './DocOverlay';
@@ -57,6 +57,11 @@ export interface OverlayRendererProps {
   onDocResync?: () => void;
   /** DOC AUTHORING: enables page nav. Omit on viewers so the page stays server-synced. */
   onDocPageNav?: (nextPage: number) => void;
+  /** DOC: the single/scroll view mode (rides the synced presenter). */
+  docMode?: DocViewMode;
+  /** DOC: called when the user toggles single ⇆ scroll (streamer rebroadcasts; viewer
+   *  enters local takeover). Omit to hide the toggle. */
+  onDocModeChange?: (m: DocViewMode) => void;
 }
 
 export function OverlayRenderer({
@@ -69,6 +74,8 @@ export function OverlayRenderer({
   onDocTakeOver,
   onDocResync,
   onDocPageNav,
+  docMode,
+  onDocModeChange,
 }: OverlayRendererProps) {
   switch (overlay.kind) {
     case 'poll':
@@ -93,6 +100,8 @@ export function OverlayRenderer({
           onTakeOver={onDocTakeOver}
           onResync={onDocResync}
           onPageNav={onDocPageNav}
+          mode={docMode}
+          onModeChange={onDocModeChange}
           leaf={leaf}
         />
       );

@@ -14,6 +14,7 @@
 // but the filename + page count ALWAYS show.
 
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import type { DocViewMode } from '@paxpia/core';
 import { colors } from '../theme/tokens';
 
 export interface DocChromeProps {
@@ -33,16 +34,35 @@ export interface DocChromeProps {
   /** Page nav (authoring/streamer). Omit on viewers so the page stays server-synced;
    *  the count still shows. */
   onPageNav?: (nextPage: number) => void;
+  /** The active single/scroll view mode. When `onModeChange` is supplied a 2-state
+   *  TOGGLE renders (always available — §4); omit `onModeChange` to hide the toggle. */
+  mode?: DocViewMode;
+  /** Toggle single ⇆ scroll. The streamer's toggle rides the synced presenter so
+   *  viewers mirror it; a viewer's toggle is a local takeover. */
+  onModeChange?: (m: DocViewMode) => void;
 }
 
-export function DocChrome({ filename, page, total, scale, onZoom, onFullscreen, onPageNav }: DocChromeProps) {
+export function DocChrome({
+  filename,
+  page,
+  total,
+  scale,
+  onZoom,
+  onFullscreen,
+  onPageNav,
+  mode,
+  onModeChange,
+}: DocChromeProps) {
   const canPrev = !!onPageNav && page > 0;
   const canNext = !!onPageNav && page < total - 1;
   const showZoom = !!onZoom;
   const showFullscreen = !!onFullscreen;
+  const showMode = !!onModeChange;
+  const activeMode: DocViewMode = mode === 'scroll' ? 'scroll' : 'single';
   return (
     <View style={styles.bar}>
-      {/* LEFT: filename + "X / Y" — ALWAYS shown (web parity). */}
+      {/* LEFT: filename + "X / Y" — ALWAYS shown (web parity). In single mode the
+          prev/next arrows flip the synced page; the count still derives from page. */}
       <View style={styles.left}>
         {onPageNav ? (
           <Pressable
@@ -68,10 +88,32 @@ export function DocChrome({ filename, page, total, scale, onZoom, onFullscreen, 
         ) : null}
       </View>
 
-      {/* RIGHT: zoom +/− + the live % + fullscreen/refit — shown where it makes
-          sense (omitted when the leaf owns its own zoom). */}
-      {showZoom || showFullscreen ? (
+      {/* RIGHT: the MODE TOGGLE (always available — §4) + zoom/fullscreen where it
+          makes sense (omitted when the leaf owns its own zoom). */}
+      {showMode || showZoom || showFullscreen ? (
         <View style={styles.right}>
+          {showMode ? (
+            <View style={styles.modeToggle} accessibilityRole="tablist">
+              <Pressable
+                testID="doc-mode-single"
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeMode === 'single' }}
+                onPress={() => onModeChange?.('single')}
+                style={[styles.modeBtn, activeMode === 'single' && styles.modeBtnActive]}
+              >
+                <Text style={[styles.modeGlyph, activeMode === 'single' && styles.modeGlyphActive]}>▣</Text>
+              </Pressable>
+              <Pressable
+                testID="doc-mode-scroll"
+                accessibilityRole="tab"
+                accessibilityState={{ selected: activeMode === 'scroll' }}
+                onPress={() => onModeChange?.('scroll')}
+                style={[styles.modeBtn, activeMode === 'scroll' && styles.modeBtnActive]}
+              >
+                <Text style={[styles.modeGlyph, activeMode === 'scroll' && styles.modeGlyphActive]}>≣</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {showZoom ? (
             <>
               <Pressable onPress={() => onZoom?.(1 / 1.25)} style={styles.zoomBtn}>
@@ -114,6 +156,17 @@ const styles = StyleSheet.create({
   },
   navBtnDisabled: { opacity: 0.3 },
   navGlyph: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 7,
+    padding: 1,
+    marginRight: 2,
+  },
+  modeBtn: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
+  modeBtnActive: { backgroundColor: 'rgba(255,255,255,0.18)' },
+  modeGlyph: { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: '700' },
+  modeGlyphActive: { color: '#fff' },
   zoomBtn: {
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 6,
