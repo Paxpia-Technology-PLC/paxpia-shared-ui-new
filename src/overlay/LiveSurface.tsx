@@ -41,6 +41,14 @@ export interface LiveSurfaceProps {
 }
 
 export function LiveSurface({ expectVideo, title, avatarUri, name, video, children }: LiveSurfaceProps) {
+  // Surface-decision telemetry (the BUG 1 assertion seam): which surface this paints
+  // from the single shared `expectVideo` signal. A normal feed ⇒ expectVideo=true ⇒
+  // video surface (the injected LiveKit video node); a genuine audio-only doc room ⇒
+  // expectVideo=false ⇒ branded audio surface.
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    // eslint-disable-next-line no-console
+    console.log('[Surface]', `render surface=${expectVideo ? 'video' : 'audio'}`, `expectVideo=${expectVideo}`, `hasVideoNode=${!!video}`);
+  }
   return (
     <View style={styles.root}>
       {expectVideo ? (
