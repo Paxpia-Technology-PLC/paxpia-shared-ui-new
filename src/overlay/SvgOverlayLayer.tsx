@@ -15,7 +15,7 @@
 // live set stacked — handing each id's raw svg string to the injected host. Renders
 // nothing when no SVGs are live.
 
-import { useEffect, useState, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { View, StyleSheet } from 'react-native';
 import {
   emptySvgOverlays,
@@ -32,6 +32,12 @@ import {
  *  `pruneExpiredSvgOverlays` returns the SAME ref when nothing expired, so an idle
  *  tick triggers no re-render (React bails on an identical state reference). */
 const PRUNE_INTERVAL_MS = 1000;
+
+/** Count the live set BEFORE/AFTER a prune so we can log how many expired this sweep.
+ *  Pure helper kept here (not in core) so the log format stays a view-layer concern. */
+function countMap(s: SvgOverlayState): number {
+  return Object.keys(s).length;
+}
 
 /** The thin channel the layer subscribes to for `overlay.svg` events. The platform
  *  shell binds this to its overlay data channel; the layer never touches the SDK. */
@@ -53,10 +59,18 @@ export interface SvgOverlayLayerProps {
   source: SvgOverlaySource | null;
   /** The injected SVG host (sanitize + inject) — never imported here. */
   SvgHost: ComponentType<SvgHostProps>;
+  /** Optional verbose lifecycle log. When set, every prune sweep emits
+   *  `[Svg] live=N pruned=M` so a device/emulator pass can ASSERT the live count
+   *  bounds (converges) rather than growing unbounded. Off by default (silent). */
+  debugLog?: (line: string) => void;
 }
 
-export function SvgOverlayLayer({ source, SvgHost }: SvgOverlayLayerProps) {
+export function SvgOverlayLayer({ source, SvgHost, debugLog }: SvgOverlayLayerProps) {
   const [state, setState] = useState<SvgOverlayState>(emptySvgOverlays);
+  // Keep the log fn in a ref so the (deps-empty) prune effect never re-subscribes when
+  // the caller passes a fresh closure each render.
+  const logRef = useRef(debugLog);
+  logRef.current = debugLog;
 
   // Subscribe to the channel. Re-subscribes when the source instance changes (a room
   // switch hands a fresh channel); a fresh channel ⇒ fresh (empty) set.
@@ -68,15 +82,31 @@ export function SvgOverlayLayer({ source, SvgHost }: SvgOverlayLayerProps) {
     setState(emptySvgOverlays());
     const off = source.onSvgOverlay((m: SvgOverlayMsg) => {
       const now = Date.now();
-      setState((s) => (m.t === 'overlay.svg' ? setSvgOverlay(s, m, now) : deleteSvgOverlay(s, m.id)));
+      // Prune-on-arrival as well as on the interval: even if the JS thread is busy
+      // enough to delay the prune timer, a new SET/DELETE always reconciles the set, so
+      // it can never drift far past the bounded steady state (defence vs timer starvation).
+      setState((s) => {
+        const pruned = pruneExpiredSvgOverlays(s, now);
+        return m.t === 'overlay.svg' ? setSvgOverlay(pruned, m, now) : deleteSvgOverlay(pruned, m.id);
+      });
     });
     return off;
   }, [source]);
 
   // TTL pruner: drop expired ids on a steady interval (render-free on an idle tick).
+  // The `[Svg] live=N pruned=M` line (when debugLog is set) is the assertion surface:
+  // in a jazz room the live count must CONVERGE/BOUND as overlays expire, never grow
+  // unbounded — proving mobile now matches web's shared-TTL behaviour.
   useEffect(() => {
     const t = setInterval(() => {
-      setState((s) => pruneExpiredSvgOverlays(s, Date.now()));
+      setState((s) => {
+        const before = countMap(s);
+        const next = pruneExpiredSvgOverlays(s, Date.now());
+        const after = countMap(next);
+        const log = logRef.current;
+        if (log) log(`[Svg] live=${after} pruned=${before - after}`);
+        return next;
+      });
     }, PRUNE_INTERVAL_MS);
     return () => clearInterval(t);
   }, []);
