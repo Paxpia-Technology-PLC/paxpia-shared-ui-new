@@ -11,3 +11,8 @@
 // next to `Foo.tsx`; the bundlers pick the right one via resolve.extensions.
 export * from './components';
 export * from './theme';
+// Overlay view layer (Task E) — the ONE cross-platform overlay/doc/SVG component set,
+// consuming @paxpia/core's model + an injected LeafAdapter.
+export * from './overlay';
+// Entry-gate shell (Task F) — the ONE pre-join loading shell, rendered from GateState.
+export * from './gate';

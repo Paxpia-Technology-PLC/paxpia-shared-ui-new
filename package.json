@@ -8,7 +8,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./components": "./src/components/index.ts",
-    "./theme": "./src/theme/index.ts"
+    "./theme": "./src/theme/index.ts",
+    "./overlay": "./src/overlay/index.ts",
+    "./gate": "./src/gate/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

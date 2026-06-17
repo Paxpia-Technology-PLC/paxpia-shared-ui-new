@@ -21,7 +21,14 @@
       // shared components typecheck against the same contract both platforms run.
       // `react` resolves from this package's own @types/react (dev dep).
       "react-native": ["../Paxpia-mobile/node_modules/react-native/types"],
-      "react-native/*": ["../Paxpia-mobile/node_modules/react-native/types/*"]
+      "react-native/*": ["../Paxpia-mobile/node_modules/react-native/types/*"],
+      // @paxpia/core (the domain model) is consumed as TS SOURCE via a path alias,
+      // exactly as the apps do (Vite alias on web / Metro resolver on mobile). The
+      // overlay/gate view components in this package render FROM core's pure model
+      // (OverlayViewProps, GateState, DocRenderPlan, pct/foldOptimisticTally, the
+      // svg set, docViewport math). Source-only; no build step.
+      "@paxpia/core": ["../paxpia-shared-core/src/index.ts"],
+      "@paxpia/core/*": ["../paxpia-shared-core/src/*"]
     }
   },
   "include": ["src"]
