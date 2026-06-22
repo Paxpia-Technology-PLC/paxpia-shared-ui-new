@@ -84,6 +84,25 @@ export interface WebViewHostProps {
    *  without the shell stealing the WebView's scroll/zoom. (Back-comp; `onReport`'s
    *  'interact' supersedes it — hosts may call either.) */
   onUserInteract?(): void;
+  /** WHITEBOARD content-only capture (§3.5). When supplied, the host advertises it can
+   *  screenshot the frame's CONTENT layer (strokes + background at the viewer's current
+   *  pan/zoom) — and ONLY that layer, because chrome (the resync banner, zoom buttons,
+   *  chat, scrims, video) lives in the RN/React tree OUTSIDE the WebView, so it can't
+   *  leak into the PNG. The host fulfils a request by posting `encodeRequestCapture()`
+   *  (`{t:'capture'}`) into the frame; the frame replies `{e:'capture',dataUrl}` (a
+   *  base64 PNG) which surfaces back through `onReport`. Optional — a leaf may omit it
+   *  (the WhiteboardOverlay then hides its Screenshot button). Saving/sharing the data
+   *  url is the platform shell's job (mobile: CameraRoll/share sheet; web: `<a download>`),
+   *  kept out of `@paxpia/ui` exactly as the doc engine keeps fetch/IO in the host. */
+  onRequestCapture?(): void;
+  /** WHITEBOARD: the capture-request signal. A monotonically-increasing number; each new
+   *  value the host hasn't yet acted on means "post a `{t:'capture'}` into the frame now".
+   *  `WhiteboardOverlay` bumps it when the viewer taps Screenshot; the host watches it
+   *  (an effect keyed on the value) and posts the request, delivering the result via
+   *  `onReport({e:'capture',dataUrl})`. This is the prop-driven realization of
+   *  `onRequestCapture` (a `() => void` prop can't drive a child imperatively, so the
+   *  trigger rides a signal). Absent/0 ⇒ no capture requested. */
+  captureSignal?: number;
 }
 
 /** The leaf adapter a platform shell injects into the shared overlay components. Both

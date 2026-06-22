@@ -1,0 +1,302 @@
+// WhiteboardOverlay — the ONE shared synced-WHITEBOARD shell (§3.3), the sibling of
+// DocOverlay. It consumes the SAME injected `LeafAdapter.WebViewHost` the doc shell
+// uses (web `<iframe>` / mobile `react-native-webview`) and renders the board through
+// the core `buildWhiteboardHtml` builder, so dashboard + web-viewer + mobile-viewer
+// paint a byte-identical board at 60fps (strokes composite into the live frame DOM,
+// not a per-stroke RN re-render — this kills the old inline-SVG ~5fps problem).
+//
+// ── WHAT IT OWNS (identical to DocOverlay) ───────────────────────────────────
+//   • the {scale,panX,panY} viewport via the shared `docViewport` math (clampDocZoom
+//     / clampPan / panBy / zoomByFactor) — SAME transform model as docs/images, so
+//     pan/zoom + presenter-sync + takeover behave identically.
+//   • the doc TAKEOVER / RESYNC model, reusing `docTakeover` VERBATIM: while FOLLOWING
+//     the viewer mirrors the publisher's transform 1:1; the first local pinch/pan
+//     inside the frame emits {e:'tf'} → markTakeover() → onTakeOver(), the "Out of
+//     sync — Resync" banner shows, and the publisher transform STOPS being applied.
+//     Resync → onResync() → snap to the publisher's current transform.
+//   • the ALWAYS-shown `WhiteboardChrome` (zoom ± / refit / screenshot; pen controls
+//     in editable mode).
+//
+// ── STROKES ARE CONTENT, THE TRANSFORM IS VIEW ───────────────────────────────
+// Incoming wb.add/del/wipe/set apply to the board content REGARDLESS of takeover (a
+// taken-over viewer still sees the publisher's new strokes, just at their own
+// zoom/offset). The shell holds the synced board (the core WbBoardState, folded by
+// `applyWb` in the platform shell) and feeds its strokes in as the `strokes` prop;
+// they are baked into the frame via `buildWhiteboardHtml({ initialStrokes })`. The
+// frame reloads with the latest snapshot when the strokes change — the LeafAdapter
+// seam carries no per-stroke push channel, so the snapshot IS the content wire.
+//
+// ── EDITABLE (streamer/dash author) ──────────────────────────────────────────
+// `editable` builds the authoring frame (pointer → finished stroke). A finished
+// stroke arrives as {e:'wb.draw'} → forwarded to `onDraw` so the shell broadcasts it
+// (overlay.wb.stroke) and echoes it back into the board. The chrome's pen colour/
+// width/clear drive the local authoring state; `onClear` bumps the board generation.
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native';
+import {
+  buildWhiteboardHtml,
+  clampDocZoom,
+  clampPan,
+  fitViewport,
+  zoomByFactor,
+  type DocFrameReport,
+  type DocPresenterState,
+  type DocViewport,
+  type WbStroke,
+  type WhiteboardPayload,
+} from '@paxpia/core';
+import type { LeafAdapter } from './LeafAdapter';
+import { WhiteboardChrome, WB_COLORS, WB_WIDTHS } from './WhiteboardChrome';
+
+export interface WhiteboardOverlayProps {
+  /** The board identity + canvas geometry every front renders in (from the overlay
+   *  instance payload). Strokes do NOT live here — they arrive via `strokes`. */
+  payload: WhiteboardPayload;
+  /** The synced stroke set (the core WbBoardState.strokes, folded by `applyWb` in the
+   *  platform shell). Baked into the frame as the current snapshot; rebuilt on change.
+   *  Applies REGARDLESS of takeover (strokes are content, the transform is view). */
+  strokes: WbStroke[];
+  /** The STREAMER's synced pan/zoom. When it changes and the viewer hasn't taken over,
+   *  the view SNAPS to it (mirror the presenter). Omitted on the streamer. */
+  presenter?: DocPresenterState | null;
+  /** VIEWER: true when this viewer has LOCALLY taken over (out of sync). Drives the
+   *  banner + resync and tells the follow-effect to STOP snapping to the streamer. */
+  takenOver?: boolean;
+  /** VIEWER: called the moment the viewer pans/zooms locally → enter local takeover.
+   *  Omit on the streamer (it never takes over its own board). */
+  onTakeOver?: () => void;
+  /** VIEWER: resync to the streamer — the parent ends takeover; the follow-effect then
+   *  re-snaps to the presenter transform. */
+  onResync?: () => void;
+  /** STREAMER/PRODUCER: called when THIS surface's local transform changes, so the
+   *  studio can broadcast the presenter pan/zoom to viewers (dash == viewer). Viewers
+   *  omit it. */
+  onPresenter?: (p: DocPresenterState) => void;
+  /** EDITABLE (streamer/dash) author mode — the frame captures the pen and the chrome
+   *  shows colour/width/clear. Viewers omit it. */
+  editable?: boolean;
+  /** EDITABLE: a finished local stroke to broadcast ({e:'wb.draw'} from the frame). */
+  onDraw?: (stroke: WbStroke) => void;
+  /** EDITABLE: clear the board (the chrome Clear button) — the shell bumps the gen and
+   *  broadcasts overlay.wb.wipe. */
+  onClear?: () => void;
+  /** VIEWER: a content-only screenshot ({e:'capture'} from the frame) — a base64 PNG
+   *  data url. The platform shell saves/shares it (mobile: CameraRoll/share; web: <a
+   *  download>). Omit to hide the screenshot button. */
+  onCapture?: (dataUrl: string) => void;
+  /** Whether the chrome should render its refit control. */
+  chrome?: { fullscreen?: boolean };
+  /** The injected leaf (the WebView host). The ONLY per-platform decode. */
+  leaf: LeafAdapter;
+}
+
+export function WhiteboardOverlay({
+  payload,
+  strokes,
+  presenter = null,
+  takenOver = false,
+  onTakeOver,
+  onResync,
+  onPresenter,
+  editable = false,
+  onDraw,
+  onClear,
+  onCapture,
+  chrome,
+  leaf,
+}: WhiteboardOverlayProps) {
+  const { WebViewHost } = leaf;
+  const title = payload.title ?? 'Whiteboard';
+
+  // A viewer surface = one that can take over (onTakeOver supplied). The streamer/dash
+  // author surface passes `editable` and never takes over its own board.
+  const isViewer = !!onTakeOver;
+
+  // The screenshot is viewer-facing. The button bumps `captureSignal`; the host watches
+  // it and posts {t:'capture'} into the frame; the result returns via onReport({e:'capture'})
+  // → onCapture. The whole capture is content-only by construction (chrome lives OUTSIDE
+  // the frame, so it can't leak into the PNG). Hidden when onCapture isn't wired.
+  const [captureSignal, setCaptureSignal] = useState(0);
+  const requestCapture = () => setCaptureSignal((n) => n + 1);
+  const showScreenshot = !!onCapture;
+
+  // The pan/zoom transform is ONE { scale, panX, panY } driven by the shared core
+  // docViewport math, IDENTICAL to DocOverlay's image/frame path.
+  const [vp, setVp] = useState<DocViewport>(fitViewport);
+  const takenOverRef = useRef(takenOver);
+  takenOverRef.current = takenOver;
+  const onTakeOverRef = useRef(onTakeOver);
+  onTakeOverRef.current = onTakeOver;
+
+  // Measured container size (px) — pan bounds / zoom focal. The streamer's pan rides the
+  // wire in container px (zoom is portable), so we clamp it to OUR container.
+  const [container, setContainer] = useState<{ width: number; height: number }>({ width: 1, height: 1 });
+  const containerRef = useRef(container);
+  containerRef.current = container;
+  const onViewportLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setContainer({ width: width || 1, height: height || 1 });
+  };
+
+  // Pen authoring state (editable mode) — pushed to the frame's window.__wbSetColor /
+  // __wbSetWidth via the WebViewHost is the platform shell's job; here we just hold it
+  // for the chrome. (The frame defaults colour/width on its own until the host pushes.)
+  const [penColor, setPenColor] = useState<string>(WB_COLORS[0]);
+  const [penWidth, setPenWidth] = useState<number>(WB_WIDTHS[1]);
+
+  // A viewer interacting locally = a local takeover (defer the streamer's view). Fired
+  // ONLY on a genuine transform gesture (the frame's {e:'tf'}) or a ± zoom, never a bare
+  // touch. Identical rule to DocOverlay.
+  const markTakeover = () => {
+    if (isViewer && !takenOverRef.current) onTakeOverRef.current?.();
+  };
+
+  // VIEWER: apply the streamer's presenter transform when it changes while NOT taken
+  // over, so the view mirrors what the streamer shows. With no presenter, snap to fit.
+  // Skipped while taken over (honour the viewer's own focus). Mirrors DocOverlay.
+  const lastPresenter = useRef<string>('');
+  useEffect(() => {
+    if (takenOver) return;
+    if (presenter) {
+      const key = `${presenter.zoom}:${presenter.panX}:${presenter.panY}`;
+      if (key === lastPresenter.current) return;
+      lastPresenter.current = key;
+      setVp(
+        clampPan(
+          { scale: clampDocZoom(presenter.zoom), panX: presenter.panX, panY: presenter.panY },
+          containerRef.current,
+        ),
+      );
+    } else {
+      setVp((v) => clampPan(v, containerRef.current));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presenter, takenOver, container.width, container.height]);
+
+  // STREAMER/PRODUCER direction: when a producer surface (onPresenter supplied) changes
+  // its local transform, broadcast it so viewers mirror it. Viewers omit onPresenter.
+  useEffect(() => {
+    onPresenter?.({ page: 0, zoom: vp.scale, panX: vp.panX, panY: vp.panY });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vp.scale, vp.panX, vp.panY]);
+
+  // ± zoom (the chrome buttons) — zoom about the container CENTRE + mark takeover.
+  const buttonZoom = (factor: number) => {
+    markTakeover();
+    setVp((v) => zoomByFactor(v, factor, containerRef.current));
+  };
+  // Refit — a taken-over viewer resyncs; otherwise reset to fit.
+  const refit = () => {
+    if (isViewer && takenOverRef.current) onResync?.();
+    else setVp(fitViewport());
+  };
+
+  // Frame→host reports. 'tf' is a LOCAL gesture inside the frame → record it as our
+  // viewport (so the chrome % tracks it + it can be rebroadcast) and, on a viewer, flip
+  // to local takeover. 'wb.draw' (editable) is a finished local stroke to broadcast.
+  // 'capture' is the content-only screenshot result. A bare tap never produces 'tf', so
+  // touching the board does NOT desync — matching the doc rule.
+  const handleReport = (r: DocFrameReport) => {
+    if (r.e === 'tf') {
+      markTakeover();
+      setVp(clampPan({ scale: clampDocZoom(r.s), panX: r.x, panY: r.y }, containerRef.current));
+    } else if (r.e === 'wb.draw') {
+      onDraw?.(r.stroke);
+    } else if (r.e === 'capture') {
+      onCapture?.(r.dataUrl);
+    }
+  };
+
+  // Build the board HTML from the current snapshot. Rebuilt when the strokes / canvas /
+  // background / editability change — the host reloads the frame with the new snapshot
+  // (the LeafAdapter seam carries no per-stroke push, so the snapshot is the content
+  // wire). Strokes apply regardless of takeover (content, not view).
+  const html = useMemo(
+    () =>
+      buildWhiteboardHtml({
+        canvas: payload.canvas,
+        backgroundUrl: payload.backgroundUrl,
+        initialStrokes: strokes,
+        editable,
+      }),
+    [payload.canvas, payload.backgroundUrl, strokes, editable],
+  );
+
+  return (
+    <View style={styles.root}>
+      <View style={styles.viewport} onLayout={onViewportLayout}>
+        {/* The board frame fills the viewport (stretch, never center — a flex frame
+            with no intrinsic width collapses to 0 under alignItems:center). The frame
+            applies the shared {scale,panX,panY} transform internally and reports local
+            gestures + draws + capture back via onReport. */}
+        <View style={styles.frameFill}>
+          <WebViewHost
+            html={html}
+            transform={vp}
+            onReport={handleReport}
+            captureSignal={showScreenshot ? captureSignal : undefined}
+          />
+        </View>
+
+        {/* OUT-OF-SYNC banner (viewer only) — lifted verbatim from DocOverlay. A
+            coloured pill at the TOP when the viewer has locally taken over, with a
+            resync button that snaps them back to the streamer's transform. */}
+        {isViewer && takenOver ? (
+          <View style={styles.banner} pointerEvents="box-none">
+            <Pressable style={styles.resyncBtn} onPress={() => onResync?.()} hitSlop={8}>
+              <Text style={styles.resyncText}>↻ Resync</Text>
+            </Pressable>
+            <View style={styles.outOfSyncPill}>
+              <Text style={styles.outOfSyncText}>Out of sync with streamer</Text>
+            </View>
+          </View>
+        ) : null}
+      </View>
+
+      {/* The ALWAYS-shown chrome: title + zoom ± + refit + (viewer) screenshot +
+          (editable) pen colour/width/clear. */}
+      <WhiteboardChrome
+        title={title}
+        scale={vp.scale}
+        onZoom={buttonZoom}
+        onFullscreen={chrome?.fullscreen !== false ? refit : undefined}
+        onScreenshot={showScreenshot ? requestCapture : undefined}
+        editable={editable}
+        color={penColor}
+        onColor={setPenColor}
+        width={penWidth}
+        onWidth={setPenWidth}
+        onClear={onClear}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  viewport: {
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  // The board frame (WebView/iframe) must fill the viewport — stretch, never center
+  // (centering collapses a flex frame's width to 0 → the historic blank-frame bug).
+  frameFill: { flex: 1, alignSelf: 'stretch', width: '100%' },
+  banner: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    right: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    columnGap: 8,
+  },
+  resyncBtn: { backgroundColor: '#f59e0b', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  resyncText: { color: '#000', fontSize: 10, fontWeight: '800' },
+  outOfSyncPill: { backgroundColor: 'rgba(245,158,11,0.9)', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  outOfSyncText: { color: '#000', fontSize: 10, fontWeight: '700' },
+});

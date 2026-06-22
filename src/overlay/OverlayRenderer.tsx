@@ -20,10 +20,19 @@
 // non-interactive preview (authoring editors) — empty tallies, vote is a no-op.
 
 import { View, Text, StyleSheet } from 'react-native';
-import type { DocPresenterState, DocRenderPlan, DocViewMode, OverlayInstance, OverlayViewProps } from '@paxpia/core';
+import type {
+  DocPresenterState,
+  DocRenderPlan,
+  DocViewMode,
+  OverlayInstance,
+  OverlayViewProps,
+  WbStroke,
+  WhiteboardPayload,
+} from '@paxpia/core';
 import type { LeafAdapter } from './LeafAdapter';
 import { ParticipationOverlay } from './ParticipationOverlay';
 import { DocOverlay } from './DocOverlay';
+import { WhiteboardOverlay } from './WhiteboardOverlay';
 
 /** A non-interactive preview view: no votes recorded, empty tallies, vote is a no-op.
  *  Used when a renderer is shown as a STATIC preview (the studio authoring editors)
@@ -62,6 +71,19 @@ export interface OverlayRendererProps {
   /** DOC: called when the user toggles single ⇆ scroll (streamer rebroadcasts; viewer
    *  enters local takeover). Omit to hide the toggle. */
   onDocModeChange?: (m: DocViewMode) => void;
+  /** WHITEBOARD: the synced stroke set (core WbBoardState.strokes, folded by `applyWb`
+   *  in the shell). Applies regardless of takeover — strokes are content, transform is
+   *  view. Required to render a `whiteboard` overlay's content. */
+  wbStrokes?: WbStroke[];
+  /** WHITEBOARD EDITABLE (streamer/dash author): the frame captures the pen and the
+   *  chrome shows colour/width/clear. Viewers omit it. */
+  wbEditable?: boolean;
+  /** WHITEBOARD EDITABLE: a finished local stroke to broadcast (overlay.wb.stroke). */
+  onWbDraw?: (stroke: WbStroke) => void;
+  /** WHITEBOARD EDITABLE: clear the board (bump gen + broadcast overlay.wb.wipe). */
+  onWbClear?: () => void;
+  /** WHITEBOARD VIEWER: a content-only screenshot data url — the shell saves/shares it. */
+  onWbCapture?: (dataUrl: string) => void;
 }
 
 export function OverlayRenderer({
@@ -76,6 +98,11 @@ export function OverlayRenderer({
   onDocPageNav,
   docMode,
   onDocModeChange,
+  wbStrokes,
+  wbEditable = false,
+  onWbDraw,
+  onWbClear,
+  onWbCapture,
 }: OverlayRendererProps) {
   switch (overlay.kind) {
     case 'poll':
@@ -105,13 +132,29 @@ export function OverlayRenderer({
           leaf={leaf}
         />
       );
-    case 'svg':
-      // The single-active `svg` overlay slot (the multi-live TTL plane is the separate
-      // SvgOverlayLayer). Web parity: a labelled "Live whiteboard" placeholder.
+    case 'whiteboard':
+      // The synced, takeover-capable freehand board — rendered through the SAME WebView
+      // seam as docs (`buildWhiteboardHtml` in the leaf's WebViewHost), with the doc's
+      // personal-streamer pan/zoom + takeover/resync model and a content-only screenshot.
+      // Reuses the doc takeover/presenter prop names (identical semantics): docPresenter
+      // → the publisher's synced transform, docTakenOver/onDocTakeOver/onDocResync → the
+      // viewer's local-takeover banner + resync. Strokes ride `wbStrokes` (content, applied
+      // regardless of takeover); `wbEditable`/onWbDraw/onWbClear are the streamer/dash pen;
+      // onWbCapture surfaces the screenshot data url to the shell.
       return (
-        <View style={styles.svgRoot}>
-          <Text style={styles.svgTitle}>Live whiteboard</Text>
-        </View>
+        <WhiteboardOverlay
+          payload={overlay.payload as WhiteboardPayload}
+          strokes={wbStrokes ?? []}
+          presenter={docPresenter}
+          takenOver={docTakenOver}
+          onTakeOver={onDocTakeOver}
+          onResync={onDocResync}
+          editable={wbEditable}
+          onDraw={onWbDraw}
+          onClear={onWbClear}
+          onCapture={onWbCapture}
+          leaf={leaf}
+        />
       );
     default:
       return (
@@ -125,6 +168,4 @@ export function OverlayRenderer({
 const styles = StyleSheet.create({
   fallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   fallbackText: { color: 'rgba(255,255,255,0.4)', fontSize: 13 },
-  svgRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', rowGap: 8 },
-  svgTitle: { color: 'rgba(255,255,255,0.6)', fontSize: 13 },
 });

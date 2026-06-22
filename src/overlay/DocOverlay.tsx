@@ -111,7 +111,6 @@ export function DocOverlay({
   // is the SAME shared docViewport model, so zoom/pan + presenter-sync + takeover now
   // work for EVERY doc kind on EVERY surface (was image-only).
   const isFrame = isPdf || isEpub;
-  const transformable = isImage; // RN-side transform path (image only)
   // The single/scroll toggle only makes sense for the paged frame leaves (PDF/EPUB).
   const supportsMode = isFrame;
   // The real page/section count, discovered by the frame engine once the doc opens. The
@@ -200,9 +199,9 @@ export function DocOverlay({
   // onPresenter, so this never fires for them. Lets the dashboard drive the SAME shared
   // DocOverlay as the viewer.
   useEffect(() => {
-    onPresenter?.({ zoom: vp.scale, panX: vp.panX, panY: vp.panY });
+    onPresenter?.({ page, zoom: vp.scale, panX: vp.panX, panY: vp.panY });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vp.scale, vp.panX, vp.panY]);
+  }, [vp.scale, vp.panX, vp.panY, page]);
 
   // Drag-pan via PanResponder (the cross-platform pointer/touch drag). Only pans when
   // zoomed in (web onPointerDown guard) and marks takeover on a real drag. Bound once
