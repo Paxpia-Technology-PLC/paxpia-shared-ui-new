@@ -17,6 +17,7 @@
 // the leaf differs per platform.
 
 import type { ComponentType } from 'react';
+import type { DocFrameReport, DocFrameTransform } from '@paxpia/core';
 
 /** The Image/GIF leaf. Web maps to `<img>`, mobile to `<Image>`.
  *
@@ -69,8 +70,19 @@ export interface WebViewHostProps {
   page?: number;
   /** Total page count (scroll mode lays out this many page slots; single mode clamps). */
   pageCount?: number;
+  /** The shared {scale,panX,panY} transform the shell wants the frame to FOLLOW (the
+   *  streamer's synced view, or a local resync target). The host pushes this into the
+   *  frame; the frame applies it without echoing back. Single mode only. Omit/identity
+   *  ⇒ fit. This is what brings the personal-streamer zoom/pan sync to PDF + EPUB. */
+  transform?: DocFrameTransform | null;
+  /** Frame→host events (the doc engine, decoded): 'ready' | 'pages' (real total) |
+   *  'page' (current 0-based, after nav) | 'interact' (first touch → takeover) | 'tf'
+   *  (a LOCAL gesture transform → the shell records it + flips takeover) | 'fps' | 'err'.
+   *  The host parses the wire (`parseDocFrameMsg`) and forwards typed reports here. */
+  onReport?(r: DocFrameReport): void;
   /** Bridged from INSIDE the WebView on the first real interaction → flips takeover
-   *  without the shell stealing the WebView's scroll/zoom. */
+   *  without the shell stealing the WebView's scroll/zoom. (Back-comp; `onReport`'s
+   *  'interact' supersedes it — hosts may call either.) */
   onUserInteract?(): void;
 }
 

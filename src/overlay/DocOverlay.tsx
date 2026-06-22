@@ -40,6 +40,7 @@ import {
   fitViewport,
   panBy,
   zoomByFactor,
+  type DocFrameReport,
   type DocPresenterState,
   type DocRenderPlan,
   type DocViewMode,
@@ -97,12 +98,20 @@ export function DocOverlay({
   const isPdf = kind === 'pdf';
   const isEpub = kind === 'epub';
   const isImage = kind === 'image';
-  // PDF + EPUB leaves own their own scroll/zoom, so the pan/zoom transform applies
-  // only to the image path (web parity: `transformable`).
-  const transformable = isImage;
-  // The single/scroll toggle only makes sense for the paged WebView leaves (PDF/EPUB);
-  // an image doc has nothing to scroll, so the toggle is hidden there.
-  const supportsMode = isPdf || isEpub;
+  // The IMAGE path is transformed RN-side (an Animated transform + PanResponder over a
+  // native <Image>). PDF/EPUB are rendered in a frame (iframe/WebView) that owns its own
+  // gesture→transform engine; the shell pushes the synced transform DOWN and receives
+  // local-gesture transforms back UP (onReport 'tf'). Either way the {scale,panX,panY}
+  // is the SAME shared docViewport model, so zoom/pan + presenter-sync + takeover now
+  // work for EVERY doc kind on EVERY surface (was image-only).
+  const isFrame = isPdf || isEpub;
+  const transformable = isImage; // RN-side transform path (image only)
+  // The single/scroll toggle only makes sense for the paged frame leaves (PDF/EPUB).
+  const supportsMode = isFrame;
+  // The real page/section count, discovered by the frame engine once the doc opens. The
+  // manifest hint (`pageCount`) is often 1 until then — prefer whichever is larger.
+  const [discoveredPages, setDiscoveredPages] = useState(0);
+  const effectiveTotal = Math.max(pageCount ?? 0, discoveredPages);
   // Effective mode: the streamer's synced mode (mirrored) unless a viewer has locally
   // toggled. We honour the prop `mode` (the source of truth the parent owns) and fall
   // back to 'single'. When the parent doesn't manage mode (no onModeChange), keep a
@@ -221,27 +230,57 @@ export function DocOverlay({
   const transformStyle = {
     transform: [{ translateX: vp.panX }, { translateY: vp.panY }, { scale: vp.scale }],
   };
-  // From INSIDE a WebView leaf: a real interaction → local takeover (no scroll theft).
-  const onLeafInteract = isViewer ? markTakeover : undefined;
+
+  // Frame→host reports (PDF/EPUB). 'pages' gives the real total; 'tf' is a LOCAL gesture
+  // inside the frame → record it as our viewport (so the chrome % tracks it + it can be
+  // rebroadcast) and, on a viewer, flip to local takeover (the personal-streamer focus).
+  // A bare tap never produces 'tf' (only a real pinch/drag/double-tap does), so touching
+  // the doc does NOT desync — matching the image rule.
+  const handleReport = (r: DocFrameReport) => {
+    if (r.e === 'pages') {
+      setDiscoveredPages(r.n);
+    } else if (r.e === 'tf') {
+      markTakeover();
+      setVp(clampPan({ scale: clampDocZoom(r.s), panX: r.x, panY: r.y }, containerRef.current));
+    }
+  };
+
+  // Zoom controls show for the image path AND for PDF/EPUB in single mode (the frame now
+  // honours the shared transform); scroll mode is native-scrolled, so no zoom there.
+  const zoomable = isImage || (isFrame && viewMode === 'single');
 
   return (
     <View style={styles.root}>
       <View style={styles.viewport} onLayout={onViewportLayout}>
         {isPdf && src ? (
-          // RAW PDF: the injected WebView host rasterizes the synced page (single mode)
-          // or the whole doc as one culled scroll (scroll mode). It owns its own
-          // scroll/zoom, so it's rendered DIRECTLY (no pan wrapper). Takeover is
-          // signalled from inside via onUserInteract (§6b). The view MODE + the synced
-          // page + pageCount drive which bootstrap the leaf builds.
-          <View style={styles.leafFill}>
-            <WebViewHost url={src} mode={viewMode} page={page} pageCount={pageCount} onUserInteract={onLeafInteract} />
+          // RAW PDF: the injected WebView/iframe host renders the synced page (single)
+          // or the whole doc as one culled scroll (scroll). The frame applies the shared
+          // {scale,panX,panY} transform internally (pushed via `transform`) and reports
+          // local gestures + page count back via `onReport`. MUST stretch (NOT the
+          // centering leafFill — a flex frame with no intrinsic width collapses to 0
+          // under alignItems:center, which blanked every mobile PDF/EPUB).
+          <View style={styles.frameFill}>
+            <WebViewHost
+              url={src}
+              mode={viewMode}
+              page={page}
+              pageCount={effectiveTotal}
+              transform={viewMode === 'single' ? vp : null}
+              onReport={handleReport}
+            />
           </View>
         ) : isEpub && src ? (
-          // RAW EPUB: the injected WebView host opens the reader. Single mode paginates
-          // by section (prev/next + page-sync); scroll mode is one continuous reader
-          // with NO nested scrollbar. Rendered directly; takeover from inside.
-          <View style={styles.leafFill}>
-            <WebViewHost url={src} mode={viewMode} page={page} pageCount={pageCount} onUserInteract={onLeafInteract} />
+          // RAW EPUB: the injected reader. Single mode paginates by section; scroll mode
+          // is one continuous reader with NO nested scrollbar. Same stretch requirement.
+          <View style={styles.frameFill}>
+            <WebViewHost
+              url={src}
+              mode={viewMode}
+              page={page}
+              pageCount={effectiveTotal}
+              transform={viewMode === 'single' ? vp : null}
+              onReport={handleReport}
+            />
           </View>
         ) : isImage && src ? (
           // IMAGE (a pre-rendered page JPEG, an uploaded slide, or a raw image) — the
@@ -289,10 +328,10 @@ export function DocOverlay({
       <DocChrome
         filename={title}
         page={page}
-        total={pageCount}
+        total={effectiveTotal}
         scale={vp.scale}
-        onZoom={transformable ? buttonZoom : undefined}
-        onFullscreen={transformable && chrome?.fullscreen !== false ? refit : undefined}
+        onZoom={zoomable ? buttonZoom : undefined}
+        onFullscreen={zoomable && chrome?.fullscreen !== false ? refit : undefined}
         onPageNav={onPageNav}
         mode={viewMode}
         onModeChange={supportsMode ? changeMode : undefined}
@@ -311,6 +350,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   leafFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // Frame (PDF/EPUB WebView/iframe) must fill the viewport — stretch, never center
+  // (centering collapses a flex frame's width to 0 → the historic blank-doc bug).
+  frameFill: { flex: 1, alignSelf: 'stretch', width: '100%' },
   imageWrap: { width: '100%', height: '100%' },
   placeholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   phPage: { color: 'rgba(255,255,255,0.85)', fontSize: 30, fontWeight: '900' },
