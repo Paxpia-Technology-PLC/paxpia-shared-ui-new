@@ -174,6 +174,9 @@ export function DocOverlay({
   const lastPresenter = useRef<string>('');
   useEffect(() => {
     if (takenOver) return;
+    // scroll mode is the frame's own native scroll — there's no shared transform to
+    // follow, so don't fire setVp (avoids needless re-renders fighting the scroller).
+    if (isFrame && viewMode === 'scroll') return;
     if (presenter) {
       const key = `${presenter.zoom}:${presenter.panX}:${presenter.panY}:${page}`;
       if (key === lastPresenter.current) return;
