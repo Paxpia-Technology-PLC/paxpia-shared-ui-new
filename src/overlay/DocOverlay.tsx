@@ -65,6 +65,11 @@ export interface DocOverlayProps {
   /** VIEWER: resync to the streamer — the parent ends takeover; the follow-effect
    *  then re-snaps to the presenter transform. */
   onResync?: () => void;
+  /** STREAMER/PRODUCER (Task K): called when THIS surface's local transform changes, so
+   *  the studio can broadcast the presenter pan/zoom to viewers. Supplying it marks a
+   *  producer surface (the dashboard); viewers omit it. This is what lets the dashboard
+   *  drive the SAME shared DocOverlay the viewer uses (dash == viewer by construction). */
+  onPresenter?: (p: DocPresenterState) => void;
   /** Page nav (authoring/streamer). Omit on viewers so the page stays server-synced;
    *  the chrome still shows the count. */
   onPageNav?: (nextPage: number) => void;
@@ -87,6 +92,7 @@ export function DocOverlay({
   takenOver = false,
   onTakeOver,
   onResync,
+  onPresenter,
   onPageNav,
   mode,
   onModeChange,
@@ -185,6 +191,15 @@ export function DocOverlay({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presenter, takenOver, page, container.width, container.height]);
+
+  // STREAMER/PRODUCER direction (Task K): when a producer surface (onPresenter supplied)
+  // changes its local transform, broadcast it so viewers mirror it. Viewers omit
+  // onPresenter, so this never fires for them. Lets the dashboard drive the SAME shared
+  // DocOverlay as the viewer.
+  useEffect(() => {
+    onPresenter?.({ zoom: vp.scale, panX: vp.panX, panY: vp.panY });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vp.scale, vp.panX, vp.panY]);
 
   // Drag-pan via PanResponder (the cross-platform pointer/touch drag). Only pans when
   // zoomed in (web onPointerDown guard) and marks takeover on a real drag. Bound once
