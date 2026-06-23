@@ -1,28 +1,33 @@
 // WhiteboardChrome — the shared whiteboard control RAIL, sibling to DocChrome (§3.5).
 // ALWAYS shown for every whiteboard, on every platform, and — per Noel's Message D —
 // it lives ON THE OVERLAY WINDOW'S OWN EDGE, not as a detached sidebar. The shell
-// (`WhiteboardOverlay`) absolutely-positions this rail against the board's edge so the
+// (`WhiteboardOverlay`) absolutely-positions the rails against the board's edges so the
 // whiteboard is a self-contained world: the SAME overlay (chrome + board) renders in
 // dash-preview, dash live-controls and the web viewer — only the ROLE differs.
 //
-// Pure presentational rn-web (View/Text/Pressable); the shell owns the transform +
-// board state and passes the display values + callbacks in. The rail is a compact
-// translucent strip (it floats over a top corner of the board, never a sibling column),
-// so it works identically whether the board fills the screen or a small scene tile.
+// ── TWO RAILS (Noel's Message F#1) ───────────────────────────────────────────
+// The controls are split across TWO rails so they stop scrolling off / clipping / shifting
+// the drawing area:
+//   • placement="top"    — the DRAW rail (operator): a compact COLOUR DROPDOWN (not an
+//       inline swatch list — Message F#2), stroke-width cycle, UNDO + REDO (both greyed
+//       when inapplicable — Message E#4), clear, the TRANSPARENT-bg toggle (now actually
+//       on the rail — Message E#4), and a VISIBILITY toggle off at the trailing edge
+//       (hides the overlay from viewers; the streamer keeps a ghosted copy — Message E#4).
+//   • placement="bottom" — the NAV rail (BOTH roles): zoom ± / refit / screenshot. Kept
+//       on its OWN bottom edge so zoom+screenshot never push the draw rail or the board.
+// The shell mounts this component twice (one per edge). A viewer mounts only the bottom
+// rail (no draw controls at all).
 //
 // ── ROLE drives WHICH controls show (the one knob Noel asked for) ──────────────
-//   • operator (editable author) — colour swatches (WB_COLORS), stroke-width cycle
-//       (WB_WIDTHS), zoom/pan ±, refit, undo, clear, screenshot, AND the transparent-
-//       background toggle. The frame's authoring pen is driven by these.
-//   • viewer — pan/zoom ± + refit + screenshot ONLY. NO draw controls (no swatches,
-//       no width, no undo/clear/transparent). A viewer can navigate + grab a PNG, but
-//       never mutate the board.
+//   • operator (editable author) — top rail: colour dropdown, width, undo/redo, clear,
+//       transparent toggle, visibility toggle. bottom rail: zoom/pan ±, refit, screenshot.
+//   • viewer — bottom rail ONLY: pan/zoom ± + refit + screenshot. NO draw controls.
 //
 // The role is derived from `editable` (operator ⇔ editable) so existing call sites keep
-// working; callers may also pass `role` explicitly. `onZoom`/`onScreenshot`/etc. are
-// optional — an omitted callback hides that one control — but the rail itself always
-// renders (the board is never chrome-less).
+// working; callers may also pass `role` explicitly. An omitted callback hides that one
+// control — but the rail itself always renders (the board is never chrome-less).
 
+import { useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { colors } from '../theme/tokens';
 
@@ -34,9 +39,14 @@ export const WB_WIDTHS = [2, 4, 8, 14] as const;
 /** The chrome ROLE — operator (full draw + transparent toggle) vs viewer (nav only). */
 export type WhiteboardRole = 'operator' | 'viewer';
 
+/** Which edge this rail instance renders for. The shell mounts the component once per
+ *  edge: 'top' = draw controls (operator), 'bottom' = nav/zoom/screenshot (both roles). */
+export type WhiteboardRailPlacement = 'top' | 'bottom';
+
 export interface WhiteboardChromeProps {
-  /** The board title — ALWAYS shown. */
-  title: string;
+  /** Which rail to render — 'top' (draw) or 'bottom' (nav). Defaults to a single combined
+   *  rail behaviour ('top') for back-compat callers that don't split. */
+  placement?: WhiteboardRailPlacement;
   /** The control role. Defaults to operator when `editable`, else viewer — so the
    *  same overlay differs only by this knob across dash-preview / live / web-viewer. */
   role?: WhiteboardRole;
@@ -61,6 +71,12 @@ export interface WhiteboardChromeProps {
   onWidth?: (w: number) => void;
   /** Undo the last local stroke (operator) — omit to hide the button. */
   onUndo?: () => void;
+  /** Whether undo is currently possible (≥1 local stroke). Greys the button when false. */
+  canUndo?: boolean;
+  /** Redo the last undone local stroke (operator) — omit to hide the button. */
+  onRedo?: () => void;
+  /** Whether redo is currently possible (≥1 undone stroke). Greys the button when false. */
+  canRedo?: boolean;
   /** Clear the whole board (operator) — bumps the generation on the wire. */
   onClear?: () => void;
   /** TRANSPARENT-BACKGROUND state (operator) — true ⇒ the board page is alpha-0 so the
@@ -69,10 +85,15 @@ export interface WhiteboardChromeProps {
   transparent?: boolean;
   /** Flip the transparent-background toggle (operator). Omit to hide the toggle. */
   onTransparentToggle?: () => void;
+  /** VISIBILITY state (operator) — true ⇒ the overlay is HIDDEN from viewers (the streamer
+   *  still sees a ghosted copy). When `onVisibilityToggle` is supplied an eye toggle renders. */
+  hidden?: boolean;
+  /** Flip the viewer-visibility toggle (operator). Omit to hide the toggle. */
+  onVisibilityToggle?: () => void;
 }
 
 export function WhiteboardChrome({
-  title,
+  placement = 'top',
   role,
   scale,
   onZoom,
@@ -84,69 +105,156 @@ export function WhiteboardChrome({
   width = WB_WIDTHS[1],
   onWidth,
   onUndo,
+  canUndo = true,
+  onRedo,
+  canRedo = true,
   onClear,
   transparent = false,
   onTransparentToggle,
+  hidden = false,
+  onVisibilityToggle,
 }: WhiteboardChromeProps) {
   // Role resolution: explicit `role` wins; else operator ⇔ editable (back-compat).
   const resolvedRole: WhiteboardRole = role ?? (editable ? 'operator' : 'viewer');
   const isOperator = resolvedRole === 'operator';
+  const isBottom = placement === 'bottom';
 
-  const showZoom = !!onZoom;
-  const showFullscreen = !!onFullscreen;
-  const showShot = !!onScreenshot;
+  // The colour dropdown open state (Message F#2 — a compact dropdown, not an inline list).
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
   // Draw controls are OPERATOR-ONLY by construction — a viewer never gets them even if a
   // callback leaks in, so the role is the single source of truth for "can mutate".
   const showColors = isOperator && !!onColor;
   const showWidth = isOperator && !!onWidth;
   const showUndo = isOperator && !!onUndo;
+  const showRedo = isOperator && !!onRedo;
   const showClear = isOperator && !!onClear;
   const showTransparent = isOperator && !!onTransparentToggle;
+  const showVisibility = isOperator && !!onVisibilityToggle;
+
+  const showZoom = !!onZoom;
+  const showFullscreen = !!onFullscreen;
+  const showShot = !!onScreenshot;
 
   const cycleWidth = () => {
     const i = WB_WIDTHS.indexOf(width as (typeof WB_WIDTHS)[number]);
     onWidth?.(WB_WIDTHS[(i + 1) % WB_WIDTHS.length]);
   };
 
-  return (
-    // The rail: a compact, translucent, rounded strip. The shell places it absolutely on
-    // the board edge; its own background gives it contrast over any underlying source.
-    <View style={styles.rail} accessibilityRole="toolbar">
-      {/* Title + zoom/refit + screenshot are shared by BOTH roles. */}
-      <Text style={styles.title} numberOfLines={1}>
-        {title}
-      </Text>
+  // ── BOTTOM (nav) rail — zoom ± / refit / screenshot, shared by BOTH roles ──────
+  if (isBottom) {
+    if (!showZoom && !showFullscreen && !showShot) return null;
+    return (
+      <View style={[styles.rail, styles.railBottom]} accessibilityRole="toolbar">
+        {showShot ? (
+          <Pressable onPress={() => onScreenshot?.()} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="screenshot">
+            <Text style={styles.iconGlyph}>⤓</Text>
+          </Pressable>
+        ) : null}
+        {showZoom ? (
+          <>
+            <Pressable onPress={() => onZoom?.(1 / 1.25)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="zoom out">
+              <Text style={styles.iconGlyph}>−</Text>
+            </Pressable>
+            <Text style={styles.zoomPct}>{Math.round((scale ?? 1) * 100)}%</Text>
+            <Pressable onPress={() => onZoom?.(1.25)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="zoom in">
+              <Text style={styles.iconGlyph}>+</Text>
+            </Pressable>
+          </>
+        ) : null}
+        {showFullscreen ? (
+          <Pressable onPress={() => onFullscreen?.()} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="refit">
+            <Text style={styles.iconGlyph}>⤢</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
 
-      {/* OPERATOR-ONLY draw controls: colour swatches + width cycle + undo + clear. */}
+  // ── TOP (draw) rail — operator only. A viewer never renders this rail. ─────────
+  if (!isOperator) return null;
+
+  return (
+    <View style={[styles.rail, styles.railTop]} accessibilityRole="toolbar">
+      {/* A SMALL board icon stands in for the removed full-component-name header
+          (Message E#3) — it never obscures the controls (it's the first compact glyph). */}
+      <View style={styles.brandIcon} accessibilityRole="image" accessibilityLabel="whiteboard">
+        <Text style={styles.brandGlyph}>✎</Text>
+      </View>
+
+      {/* COLOUR DROPDOWN (Message F#2): a single swatch button that toggles a tight popup
+          of the palette, instead of an always-expanded inline list. */}
       {showColors ? (
-        <View style={styles.group}>
-          {WB_COLORS.map((c) => (
-            <Pressable
-              key={c}
-              onPress={() => onColor?.(c)}
-              style={[styles.swatch, { backgroundColor: c }, color === c && styles.swatchActive]}
-              accessibilityRole="button"
-              accessibilityLabel={`color ${c}`}
-              accessibilityState={{ selected: color === c }}
-            />
-          ))}
+        <View style={styles.dropdownWrap}>
+          <Pressable
+            onPress={() => setPaletteOpen((o) => !o)}
+            style={styles.colorTrigger}
+            accessibilityRole="button"
+            accessibilityLabel="pen color"
+            accessibilityState={{ expanded: paletteOpen }}
+          >
+            <View style={[styles.swatch, { backgroundColor: color }]} />
+            <Text style={styles.caret}>{paletteOpen ? '▴' : '▾'}</Text>
+          </Pressable>
+          {paletteOpen ? (
+            <View style={styles.dropdownMenu}>
+              {WB_COLORS.map((c) => (
+                <Pressable
+                  key={c}
+                  onPress={() => {
+                    onColor?.(c);
+                    setPaletteOpen(false);
+                  }}
+                  style={[styles.swatch, { backgroundColor: c }, color === c && styles.swatchActive]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`color ${c}`}
+                  accessibilityState={{ selected: color === c }}
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
+
       {showWidth ? (
         <Pressable onPress={cycleWidth} style={styles.pillBtn} accessibilityRole="button" accessibilityLabel="stroke width">
           <Text style={styles.pillText}>{width}px</Text>
         </Pressable>
       ) : null}
+
+      {/* UNDO + REDO — both greyed (disabled) when inapplicable (Message E#4). */}
       {showUndo ? (
-        <Pressable onPress={() => onUndo?.()} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="undo">
-          <Text style={styles.iconGlyph}>↶</Text>
+        <Pressable
+          onPress={() => canUndo && onUndo?.()}
+          disabled={!canUndo}
+          style={[styles.iconBtn, !canUndo && styles.iconBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="undo"
+          accessibilityState={{ disabled: !canUndo }}
+        >
+          <Text style={[styles.iconGlyph, !canUndo && styles.iconGlyphDisabled]}>↶</Text>
         </Pressable>
       ) : null}
+      {showRedo ? (
+        <Pressable
+          onPress={() => canRedo && onRedo?.()}
+          disabled={!canRedo}
+          style={[styles.iconBtn, !canRedo && styles.iconBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="redo"
+          accessibilityState={{ disabled: !canRedo }}
+        >
+          <Text style={[styles.iconGlyph, !canRedo && styles.iconGlyphDisabled]}>↷</Text>
+        </Pressable>
+      ) : null}
+
       {showClear ? (
         <Pressable onPress={() => onClear?.()} style={styles.clearBtn} accessibilityRole="button" accessibilityLabel="clear board">
           <Text style={styles.clearText}>Clear</Text>
         </Pressable>
       ) : null}
+
+      {/* TRANSPARENT-bg toggle — now reliably on the rail (Message E#4). */}
       {showTransparent ? (
         <Pressable
           onPress={() => onTransparentToggle?.()}
@@ -161,29 +269,20 @@ export function WhiteboardChrome({
         </Pressable>
       ) : null}
 
-      {/* Spacer pushes the nav cluster to the rail's trailing edge. */}
+      {/* Spacer pushes the visibility toggle to the rail's trailing edge. */}
       <View style={styles.spacer} />
 
-      {/* SHARED nav: screenshot + zoom ± + refit (both roles). */}
-      {showShot ? (
-        <Pressable onPress={() => onScreenshot?.()} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="screenshot">
-          <Text style={styles.iconGlyph}>⤓</Text>
-        </Pressable>
-      ) : null}
-      {showZoom ? (
-        <>
-          <Pressable onPress={() => onZoom?.(1 / 1.25)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="zoom out">
-            <Text style={styles.iconGlyph}>−</Text>
-          </Pressable>
-          <Text style={styles.zoomPct}>{Math.round((scale ?? 1) * 100)}%</Text>
-          <Pressable onPress={() => onZoom?.(1.25)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="zoom in">
-            <Text style={styles.iconGlyph}>+</Text>
-          </Pressable>
-        </>
-      ) : null}
-      {showFullscreen ? (
-        <Pressable onPress={() => onFullscreen?.()} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="refit">
-          <Text style={styles.iconGlyph}>⤢</Text>
+      {/* VISIBILITY toggle off at the edge (Message E#4): hides the overlay from viewers;
+          the streamer keeps a ghosted copy (the shell greys the board when hidden). */}
+      {showVisibility ? (
+        <Pressable
+          onPress={() => onVisibilityToggle?.()}
+          style={[styles.iconBtn, hidden && styles.pillBtnActive]}
+          accessibilityRole="button"
+          accessibilityLabel="toggle viewer visibility"
+          accessibilityState={{ selected: hidden }}
+        >
+          <Text style={styles.iconGlyph}>{hidden ? '🚫' : '👁'}</Text>
         </Pressable>
       ) : null}
     </View>
@@ -191,9 +290,8 @@ export function WhiteboardChrome({
 }
 
 const styles = StyleSheet.create({
-  // The rail is laid out as a single horizontal strip. The shell positions it (absolute
-  // on the board edge); here it just packs its controls and gives itself a translucent
-  // backing so it reads over any underlying scene source.
+  // A rail is a compact, translucent, rounded strip. The shell positions it (absolute on a
+  // board edge); here it just packs its controls and gives itself a translucent backing.
   rail: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -205,9 +303,49 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(11,14,22,0.82)',
     borderRadius: 999,
   },
-  title: { color: 'rgba(255,255,255,0.6)', fontSize: 11, maxWidth: 110, flexShrink: 1 },
-  group: { flexDirection: 'row', alignItems: 'center', columnGap: 4 },
+  railTop: {},
+  // The bottom (nav) rail hugs its own edge and only sizes to its content (centred by the
+  // shell), so zoom+screenshot never widen/shift the draw rail or the board.
+  railBottom: { alignSelf: 'center' },
+  brandIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+  },
+  brandGlyph: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '800' },
   spacer: { flexGrow: 1, minWidth: 4 },
+  // The colour dropdown: a trigger swatch + caret, and an absolutely-positioned popup so it
+  // doesn't push the rail wider when open.
+  dropdownWrap: { position: 'relative' },
+  colorTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    columnGap: 3,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 7,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+  caret: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  dropdownMenu: {
+    position: 'absolute',
+    top: 26,
+    left: 0,
+    flexDirection: 'row',
+    columnGap: 5,
+    rowGap: 5,
+    flexWrap: 'wrap',
+    maxWidth: 120,
+    padding: 6,
+    backgroundColor: 'rgba(11,14,22,0.96)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    zIndex: 20,
+  },
   swatch: {
     width: 15,
     height: 15,
@@ -233,7 +371,9 @@ const styles = StyleSheet.create({
     minWidth: 24,
     alignItems: 'center',
   },
+  iconBtnDisabled: { backgroundColor: 'rgba(255,255,255,0.03)' },
   iconGlyph: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  iconGlyphDisabled: { color: 'rgba(255,255,255,0.28)' },
   clearBtn: {
     backgroundColor: 'rgba(239,68,68,0.85)',
     borderRadius: 7,

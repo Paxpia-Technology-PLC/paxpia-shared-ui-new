@@ -91,9 +91,21 @@ export interface WhiteboardOverlayProps {
   onDraw?: (stroke: WbStroke) => void;
   /** EDITABLE: undo the last LOCAL stroke (the chrome Undo button). Omit to hide it. */
   onUndo?: () => void;
+  /** EDITABLE: redo the last UNDONE local stroke (the chrome Redo button). Omit to hide it. */
+  onRedo?: () => void;
+  /** EDITABLE: whether a redo is currently possible (the parent owns the redo stack). The
+   *  Redo button greys out when false. Undo greys automatically when there are no strokes. */
+  canRedo?: boolean;
   /** EDITABLE: clear the board (the chrome Clear button) — the shell bumps the gen and
    *  broadcasts overlay.wb.wipe. */
   onClear?: () => void;
+  /** OPERATOR: viewer-visibility state — true ⇒ the overlay is HIDDEN from viewers (the
+   *  streamer still sees a ghosted/greyed copy). Controlled when supplied; else owned
+   *  locally so the toggle works standalone. */
+  hidden?: boolean;
+  /** OPERATOR: flip the viewer-visibility state. When omitted the overlay owns it locally
+   *  (and still ghosts itself on the operator surface). */
+  onHiddenChange?: (next: boolean) => void;
   /** VIEWER: a content-only screenshot ({e:'capture'} from the frame) — a base64 PNG
    *  data url. The platform shell saves/shares it (mobile: CameraRoll/share; web: <a
    *  download>). Omit to hide the screenshot button. */
@@ -118,13 +130,16 @@ export function WhiteboardOverlay({
   onTransparentChange,
   onDraw,
   onUndo,
+  onRedo,
+  canRedo = false,
   onClear,
+  hidden: hiddenProp,
+  onHiddenChange,
   onCapture,
   chrome,
   leaf,
 }: WhiteboardOverlayProps) {
   const { WebViewHost } = leaf;
-  const title = payload.title ?? 'Whiteboard';
 
   // Role resolution: explicit `role` wins; else operator ⇔ editable. The chrome below
   // renders draw controls + the transparent toggle ONLY for an operator.
@@ -139,6 +154,19 @@ export function WhiteboardOverlay({
     const next = !transparent;
     if (onTransparentChange) onTransparentChange(next);
     else setTransparentLocal(next);
+  };
+
+  // Viewer-visibility state (operator toggle). Controlled when `hiddenProp` is supplied (the
+  // studio lifts it + drops the overlay from viewers over the wire); else owned locally so
+  // the toggle works standalone. On the OPERATOR surface a hidden board is GHOSTED (greyed,
+  // still drawable) rather than removed — the streamer keeps authoring while viewers see
+  // nothing. A viewer surface never renders a hidden board (the parent omits it).
+  const [hiddenLocal, setHiddenLocal] = useState<boolean>(!!hiddenProp);
+  const hidden = hiddenProp ?? hiddenLocal;
+  const toggleHidden = () => {
+    const next = !hidden;
+    if (onHiddenChange) onHiddenChange(next);
+    else setHiddenLocal(next);
   };
 
   // A viewer surface = one that can take over (onTakeOver supplied). The streamer/dash
@@ -262,16 +290,23 @@ export function WhiteboardOverlay({
     [payload.canvas, payload.backgroundUrl, strokes, editable, isOperator, transparent, penColor, penWidth],
   );
 
+  // Undo greys out when there's nothing to undo; redo is parent-driven (it owns the stack).
+  const canUndo = (strokes?.length ?? 0) > 0;
+  // The operator keeps a GHOSTED copy of a hidden board (still drawable); viewers never
+  // render a hidden board (the parent omits the overlay), so ghosting is operator-only.
+  const ghosted = isOperator && hidden;
+
   return (
     // The overlay is ONE self-contained window: the board fills it edge-to-edge and the
-    // control rail floats ABSOLUTELY on the window's own top edge (NOT a sibling column).
+    // control rails float ABSOLUTELY on the window's own edges (NOT a sibling column).
     // Same overlay in dash-preview / live-controls / web-viewer — only the role differs.
     <View style={styles.root} onLayout={onViewportLayout}>
       {/* The board frame fills the whole overlay (stretch, never center — a flex frame
           with no intrinsic width collapses to 0 under alignItems:center). The frame
           applies the shared {scale,panX,panY} transform internally and reports local
-          gestures + draws + capture back via onReport. */}
-      <View style={styles.frameFill}>
+          gestures + draws + capture back via onReport. Ghosted (greyed) when the operator
+          has hidden the overlay from viewers — they still author it. */}
+      <View style={[styles.frameFill, ghosted && styles.frameGhosted]}>
         <WebViewHost
           html={html}
           transform={vp}
@@ -280,35 +315,60 @@ export function WhiteboardOverlay({
         />
       </View>
 
-      {/* THE CONTROL RAIL — absolutely positioned on the overlay's own top edge, so the
-          chrome belongs to the board window itself (Noel's correction: it is its own
-          contained world, NOT a detached sidebar). It floats over a strip of the board;
-          pointerEvents box-none lets a click that MISSES a button fall through to the
-          board (so drawing/panning under the rail still works). Role decides the controls:
-          operator → draw + transparent toggle; viewer → nav + screenshot only. */}
-      <View style={styles.chromeEdge} pointerEvents="box-none">
+      {/* GHOSTED badge — only the operator sees it; tells the streamer the overlay is
+          currently hidden from viewers (they still see the greyed board to keep drawing). */}
+      {ghosted ? (
+        <View style={styles.ghostBadge} pointerEvents="none">
+          <Text style={styles.ghostBadgeText}>Hidden from viewers</Text>
+        </View>
+      ) : null}
+
+      {/* TOP DRAW RAIL (operator only) — absolutely positioned on the overlay's own top
+          edge, so the chrome belongs to the board window itself (Noel: it is its own
+          contained world, NOT a detached sidebar). box-none lets a click that MISSES a
+          button fall through to the board (so drawing/panning under the rail still works).
+          The colour dropdown, width, undo/redo, clear, transparent + visibility toggles
+          live here; a viewer never renders this rail. */}
+      {isOperator ? (
+        <View style={styles.chromeTop} pointerEvents="box-none">
+          <WhiteboardChrome
+            placement="top"
+            role={resolvedRole}
+            editable={isOperator}
+            color={penColor}
+            onColor={setPenColor}
+            width={penWidth}
+            onWidth={setPenWidth}
+            onUndo={onUndo}
+            canUndo={canUndo}
+            onRedo={onRedo}
+            canRedo={canRedo}
+            onClear={onClear}
+            transparent={transparent}
+            onTransparentToggle={toggleTransparent}
+            hidden={hidden}
+            onVisibilityToggle={toggleHidden}
+          />
+        </View>
+      ) : null}
+
+      {/* BOTTOM NAV RAIL (both roles) — zoom + screenshot split onto their OWN bottom edge
+          (Message F#1) so they never push/clip the draw rail or the board. Centred; box-none
+          so misses fall through to the board. */}
+      <View style={styles.chromeBottom} pointerEvents="box-none">
         <WhiteboardChrome
-          title={title}
+          placement="bottom"
           role={resolvedRole}
           scale={vp.scale}
           onZoom={buttonZoom}
           onFullscreen={chrome?.fullscreen !== false ? refit : undefined}
           onScreenshot={showScreenshot ? requestCapture : undefined}
-          editable={isOperator}
-          color={penColor}
-          onColor={setPenColor}
-          width={penWidth}
-          onWidth={setPenWidth}
-          onUndo={isOperator ? onUndo : undefined}
-          onClear={isOperator ? onClear : undefined}
-          transparent={transparent}
-          onTransparentToggle={isOperator ? toggleTransparent : undefined}
         />
       </View>
 
-      {/* OUT-OF-SYNC banner (viewer only) — lifted verbatim from DocOverlay. A coloured
-          pill at the BOTTOM when the viewer has locally taken over (kept clear of the top
-          rail), with a resync button that snaps them back to the streamer's transform. */}
+      {/* OUT-OF-SYNC banner (viewer only) — a coloured pill near the TOP when the viewer has
+          locally taken over (kept clear of the bottom nav rail), with a resync button that
+          snaps them back to the streamer's transform. */}
       {isViewer && takenOver ? (
         <View style={styles.banner} pointerEvents="box-none">
           <Pressable style={styles.resyncBtn} onPress={() => onResync?.()} hitSlop={8}>
@@ -336,10 +396,23 @@ const styles = StyleSheet.create({
   // The board frame (WebView/iframe) must fill the window — stretch, never center
   // (centering collapses a flex frame's width to 0 → the historic blank-frame bug).
   frameFill: { flex: 1, alignSelf: 'stretch', width: '100%' },
-  // The control rail's home: pinned to the overlay's own TOP edge (left/right inset so the
-  // pill never touches the corners). This is what makes the chrome part of the board window
-  // instead of a sibling column. box-none on the wrapper lets misses fall to the board.
-  chromeEdge: {
+  // A hidden-from-viewers board is greyed on the operator surface (still drawable).
+  frameGhosted: { opacity: 0.4 },
+  ghostBadge: {
+    position: 'absolute',
+    top: 6,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(11,14,22,0.85)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    zIndex: 6,
+  },
+  ghostBadgeText: { color: 'rgba(255,255,255,0.85)', fontSize: 10, fontWeight: '700' },
+  // The TOP DRAW rail: pinned to the overlay's own TOP edge (left/right inset so the pill
+  // never touches the corners). This is what makes the chrome part of the board window, not
+  // a sibling column. box-none on the wrapper lets misses fall to the board.
+  chromeTop: {
     position: 'absolute',
     top: 6,
     left: 6,
@@ -347,9 +420,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     zIndex: 5,
   },
-  banner: {
+  // The BOTTOM NAV rail: pinned to the overlay's own BOTTOM edge, centred (zoom + screenshot
+  // on their own edge so they never push/clip the draw rail or the board — Message F#1).
+  chromeBottom: {
     position: 'absolute',
     bottom: 6,
+    left: 6,
+    right: 6,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  // The viewer takeover banner sits at the TOP (the viewer has no top draw rail), clear of
+  // the bottom nav rail.
+  banner: {
+    position: 'absolute',
+    top: 6,
     left: 6,
     right: 6,
     flexDirection: 'row',

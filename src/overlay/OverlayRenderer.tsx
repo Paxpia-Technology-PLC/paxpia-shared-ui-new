@@ -82,6 +82,17 @@ export interface OverlayRendererProps {
   onWbDraw?: (stroke: WbStroke) => void;
   /** WHITEBOARD EDITABLE: clear the board (bump gen + broadcast overlay.wb.wipe). */
   onWbClear?: () => void;
+  /** WHITEBOARD EDITABLE: undo the last local stroke. Omit to hide the Undo button. */
+  onWbUndo?: () => void;
+  /** WHITEBOARD EDITABLE: redo the last undone local stroke. Omit to hide the Redo button. */
+  onWbRedo?: () => void;
+  /** WHITEBOARD EDITABLE: whether a redo is currently possible (greys the Redo button). */
+  wbCanRedo?: boolean;
+  /** WHITEBOARD OPERATOR: viewer-visibility state — true ⇒ hidden from viewers (operator
+   *  keeps a ghosted copy). Controlled when supplied + `onWbHiddenChange` flips it. */
+  wbHidden?: boolean;
+  /** WHITEBOARD OPERATOR: flip the viewer-visibility state. Omit to hide the toggle. */
+  onWbHiddenChange?: (next: boolean) => void;
   /** WHITEBOARD VIEWER: a content-only screenshot data url — the shell saves/shares it. */
   onWbCapture?: (dataUrl: string) => void;
 }
@@ -102,6 +113,11 @@ export function OverlayRenderer({
   wbEditable = false,
   onWbDraw,
   onWbClear,
+  onWbUndo,
+  onWbRedo,
+  wbCanRedo,
+  wbHidden,
+  onWbHiddenChange,
   onWbCapture,
 }: OverlayRendererProps) {
   switch (overlay.kind) {
@@ -152,6 +168,11 @@ export function OverlayRenderer({
           editable={wbEditable}
           onDraw={onWbDraw}
           onClear={onWbClear}
+          onUndo={onWbUndo}
+          onRedo={onWbRedo}
+          canRedo={wbCanRedo}
+          hidden={wbHidden}
+          onHiddenChange={onWbHiddenChange}
           onCapture={onWbCapture}
           leaf={leaf}
         />

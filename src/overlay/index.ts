@@ -10,7 +10,7 @@ export type { DocChromeProps } from './DocChrome';
 export { WhiteboardOverlay } from './WhiteboardOverlay';
 export type { WhiteboardOverlayProps } from './WhiteboardOverlay';
 export { WhiteboardChrome, WB_COLORS, WB_WIDTHS } from './WhiteboardChrome';
-export type { WhiteboardChromeProps } from './WhiteboardChrome';
+export type { WhiteboardChromeProps, WhiteboardRole, WhiteboardRailPlacement } from './WhiteboardChrome';
 export { SvgOverlayLayer } from './SvgOverlayLayer';
 export type { SvgOverlayLayerProps, SvgOverlaySource, SvgHostProps } from './SvgOverlayLayer';
 export { LiveSurface } from './LiveSurface';
