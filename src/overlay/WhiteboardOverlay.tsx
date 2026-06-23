@@ -47,7 +47,7 @@ import {
   type WhiteboardPayload,
 } from '@paxpia/core';
 import type { LeafAdapter } from './LeafAdapter';
-import { WhiteboardChrome, WB_COLORS, WB_WIDTHS } from './WhiteboardChrome';
+import { WhiteboardChrome, WB_COLORS, WB_WIDTHS, type WhiteboardRole } from './WhiteboardChrome';
 
 export interface WhiteboardOverlayProps {
   /** The board identity + canvas geometry every front renders in (from the overlay
@@ -76,8 +76,21 @@ export interface WhiteboardOverlayProps {
   /** EDITABLE (streamer/dash) author mode — the frame captures the pen and the chrome
    *  shows colour/width/clear. Viewers omit it. */
   editable?: boolean;
+  /** The CONTROL ROLE driving which chrome shows. Defaults to operator ⇔ `editable`, else
+   *  viewer. The SAME overlay renders in dash-preview / live-controls / web-viewer; only
+   *  this role differs — operator gets draw + transparent toggle, viewer gets nav only. */
+  role?: WhiteboardRole;
+  /** TRANSPARENT BACKGROUND (operator toggle): when true the board page is alpha-0 so the
+   *  underlying scene sources composite through. Default opaque white-on-ink. Threaded into
+   *  `buildWhiteboardHtml({transparent})`; strokes stay fully visible either way. */
+  transparent?: boolean;
+  /** Set the transparent-background state (operator). When omitted the chrome shows the
+   *  toggle uncontrolled-internal; supply it to lift the state to the studio. */
+  onTransparentChange?: (next: boolean) => void;
   /** EDITABLE: a finished local stroke to broadcast ({e:'wb.draw'} from the frame). */
   onDraw?: (stroke: WbStroke) => void;
+  /** EDITABLE: undo the last LOCAL stroke (the chrome Undo button). Omit to hide it. */
+  onUndo?: () => void;
   /** EDITABLE: clear the board (the chrome Clear button) — the shell bumps the gen and
    *  broadcasts overlay.wb.wipe. */
   onClear?: () => void;
@@ -100,7 +113,11 @@ export function WhiteboardOverlay({
   onResync,
   onPresenter,
   editable = false,
+  role,
+  transparent: transparentProp,
+  onTransparentChange,
   onDraw,
+  onUndo,
   onClear,
   onCapture,
   chrome,
@@ -108,6 +125,21 @@ export function WhiteboardOverlay({
 }: WhiteboardOverlayProps) {
   const { WebViewHost } = leaf;
   const title = payload.title ?? 'Whiteboard';
+
+  // Role resolution: explicit `role` wins; else operator ⇔ editable. The chrome below
+  // renders draw controls + the transparent toggle ONLY for an operator.
+  const resolvedRole: WhiteboardRole = role ?? (editable ? 'operator' : 'viewer');
+  const isOperator = resolvedRole === 'operator';
+
+  // Transparent-background state. Controlled when `transparentProp` is supplied (the studio
+  // lifts it); otherwise the overlay owns it locally so the toggle works standalone (demo).
+  const [transparentLocal, setTransparentLocal] = useState<boolean>(!!transparentProp);
+  const transparent = transparentProp ?? transparentLocal;
+  const toggleTransparent = () => {
+    const next = !transparent;
+    if (onTransparentChange) onTransparentChange(next);
+    else setTransparentLocal(next);
+  };
 
   // A viewer surface = one that can take over (onTakeOver supplied). The streamer/dash
   // author surface passes `editable` and never takes over its own board.
@@ -218,76 +250,106 @@ export function WhiteboardOverlay({
         canvas: payload.canvas,
         backgroundUrl: payload.backgroundUrl,
         initialStrokes: strokes,
-        editable,
+        // The pen captures for an OPERATOR (editable author); a viewer frame ships no
+        // authoring code. transparent makes the page alpha-0 so the scene shows through.
+        editable: editable || isOperator,
+        transparent,
+        // The chrome's active swatch/width seed the authoring pen; selecting either rebuilds
+        // the frame so the NEXT stroke carries the new colour/width (the wire IS the snapshot).
+        penColor,
+        penWidth,
       }),
-    [payload.canvas, payload.backgroundUrl, strokes, editable],
+    [payload.canvas, payload.backgroundUrl, strokes, editable, isOperator, transparent, penColor, penWidth],
   );
 
   return (
-    <View style={styles.root}>
-      <View style={styles.viewport} onLayout={onViewportLayout}>
-        {/* The board frame fills the viewport (stretch, never center — a flex frame
-            with no intrinsic width collapses to 0 under alignItems:center). The frame
-            applies the shared {scale,panX,panY} transform internally and reports local
-            gestures + draws + capture back via onReport. */}
-        <View style={styles.frameFill}>
-          <WebViewHost
-            html={html}
-            transform={vp}
-            onReport={handleReport}
-            captureSignal={showScreenshot ? captureSignal : undefined}
-          />
-        </View>
-
-        {/* OUT-OF-SYNC banner (viewer only) — lifted verbatim from DocOverlay. A
-            coloured pill at the TOP when the viewer has locally taken over, with a
-            resync button that snaps them back to the streamer's transform. */}
-        {isViewer && takenOver ? (
-          <View style={styles.banner} pointerEvents="box-none">
-            <Pressable style={styles.resyncBtn} onPress={() => onResync?.()} hitSlop={8}>
-              <Text style={styles.resyncText}>↻ Resync</Text>
-            </Pressable>
-            <View style={styles.outOfSyncPill}>
-              <Text style={styles.outOfSyncText}>Out of sync with streamer</Text>
-            </View>
-          </View>
-        ) : null}
+    // The overlay is ONE self-contained window: the board fills it edge-to-edge and the
+    // control rail floats ABSOLUTELY on the window's own top edge (NOT a sibling column).
+    // Same overlay in dash-preview / live-controls / web-viewer — only the role differs.
+    <View style={styles.root} onLayout={onViewportLayout}>
+      {/* The board frame fills the whole overlay (stretch, never center — a flex frame
+          with no intrinsic width collapses to 0 under alignItems:center). The frame
+          applies the shared {scale,panX,panY} transform internally and reports local
+          gestures + draws + capture back via onReport. */}
+      <View style={styles.frameFill}>
+        <WebViewHost
+          html={html}
+          transform={vp}
+          onReport={handleReport}
+          captureSignal={showScreenshot ? captureSignal : undefined}
+        />
       </View>
 
-      {/* The ALWAYS-shown chrome: title + zoom ± + refit + (viewer) screenshot +
-          (editable) pen colour/width/clear. */}
-      <WhiteboardChrome
-        title={title}
-        scale={vp.scale}
-        onZoom={buttonZoom}
-        onFullscreen={chrome?.fullscreen !== false ? refit : undefined}
-        onScreenshot={showScreenshot ? requestCapture : undefined}
-        editable={editable}
-        color={penColor}
-        onColor={setPenColor}
-        width={penWidth}
-        onWidth={setPenWidth}
-        onClear={onClear}
-      />
+      {/* THE CONTROL RAIL — absolutely positioned on the overlay's own top edge, so the
+          chrome belongs to the board window itself (Noel's correction: it is its own
+          contained world, NOT a detached sidebar). It floats over a strip of the board;
+          pointerEvents box-none lets a click that MISSES a button fall through to the
+          board (so drawing/panning under the rail still works). Role decides the controls:
+          operator → draw + transparent toggle; viewer → nav + screenshot only. */}
+      <View style={styles.chromeEdge} pointerEvents="box-none">
+        <WhiteboardChrome
+          title={title}
+          role={resolvedRole}
+          scale={vp.scale}
+          onZoom={buttonZoom}
+          onFullscreen={chrome?.fullscreen !== false ? refit : undefined}
+          onScreenshot={showScreenshot ? requestCapture : undefined}
+          editable={isOperator}
+          color={penColor}
+          onColor={setPenColor}
+          width={penWidth}
+          onWidth={setPenWidth}
+          onUndo={isOperator ? onUndo : undefined}
+          onClear={isOperator ? onClear : undefined}
+          transparent={transparent}
+          onTransparentToggle={isOperator ? toggleTransparent : undefined}
+        />
+      </View>
+
+      {/* OUT-OF-SYNC banner (viewer only) — lifted verbatim from DocOverlay. A coloured
+          pill at the BOTTOM when the viewer has locally taken over (kept clear of the top
+          rail), with a resync button that snaps them back to the streamer's transform. */}
+      {isViewer && takenOver ? (
+        <View style={styles.banner} pointerEvents="box-none">
+          <Pressable style={styles.resyncBtn} onPress={() => onResync?.()} hitSlop={8}>
+            <Text style={styles.resyncText}>↻ Resync</Text>
+          </Pressable>
+          <View style={styles.outOfSyncPill}>
+            <Text style={styles.outOfSyncText}>Out of sync with streamer</Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  viewport: {
+  // The root IS the overlay window: the board fills it and the rail floats on its edge.
+  root: {
     flex: 1,
+    position: 'relative',
     minHeight: 0,
     overflow: 'hidden',
     borderRadius: 10,
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
-  // The board frame (WebView/iframe) must fill the viewport — stretch, never center
+  // The board frame (WebView/iframe) must fill the window — stretch, never center
   // (centering collapses a flex frame's width to 0 → the historic blank-frame bug).
   frameFill: { flex: 1, alignSelf: 'stretch', width: '100%' },
-  banner: {
+  // The control rail's home: pinned to the overlay's own TOP edge (left/right inset so the
+  // pill never touches the corners). This is what makes the chrome part of the board window
+  // instead of a sibling column. box-none on the wrapper lets misses fall to the board.
+  chromeEdge: {
     position: 'absolute',
     top: 6,
+    left: 6,
+    right: 6,
+    flexDirection: 'row',
+    zIndex: 5,
+  },
+  banner: {
+    position: 'absolute',
+    bottom: 6,
     left: 6,
     right: 6,
     flexDirection: 'row',
