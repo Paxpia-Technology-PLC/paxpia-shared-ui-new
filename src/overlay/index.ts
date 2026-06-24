@@ -17,4 +17,8 @@ export { GiftOverlayLayer, GIFT_TOAST_TTL_MS, GIFT_VISIBLE_CAP } from './GiftOve
 export type { GiftOverlayLayerProps } from './GiftOverlayLayer';
 export { LiveSurface } from './LiveSurface';
 export type { LiveSurfaceProps } from './LiveSurface';
+// StreamStatus (#9) — the ONE shared room-status screen for {not-found, offline, error}
+// (+ connecting/reconnecting/unavailable), Retry + Go-home, modelled off core's RoomStatus.
+export { StreamStatus } from './StreamStatus';
+export type { StreamStatusProps, StreamStatusKind } from './StreamStatus';
 export type { LeafAdapter, ImageLeafProps, WebViewHostProps } from './LeafAdapter';

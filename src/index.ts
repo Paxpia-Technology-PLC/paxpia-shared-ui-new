@@ -16,3 +16,9 @@ export * from './theme';
 export * from './overlay';
 // Entry-gate shell (Task F) — the ONE pre-join loading shell, rendered from GateState.
 export * from './gate';
+// Gifting view layer (#1, SHARED-LIFT-BACKLOG §Gifting) — GiftPanel + CoinsShop (rn-web),
+// consuming @paxpia/core/wallet. Pure presentational; the host owns the sheet + transport.
+export * from './gift';
+// Social view layer (#2, §Comments) — CommentsPanel (rn-web threaded comments + composer),
+// consuming @paxpia/core/social. Props-driven; the host owns data + hydration + transport.
+export * from './social';

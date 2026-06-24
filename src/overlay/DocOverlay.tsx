@@ -170,6 +170,28 @@ export function DocOverlay({
   // manifest hint (`pageCount`) is often 1 until then — prefer whichever is larger.
   const [discoveredPages, setDiscoveredPages] = useState(0);
   const effectiveTotal = Math.max(pageCount ?? 0, discoveredPages);
+  // #6 PAGE PROGRESS — "X / Y" in EVERY mode (single + scroll) on BOTH planes (viewer +
+  // streamer). The chrome's displayed page must track the LIVE position, but the synced
+  // `page` prop only updates via a producer round-trip (and a viewer in scroll mode never
+  // owns onPageNav). So we keep a local "current page" fed by the frame's {e:'page'} report
+  // (it fires on a PDF re-render, an EPUB relocate, AND an EPUB scroll), and DISPLAY the
+  // freshest of {local report, synced prop}. This makes the count advance as you SCROLL
+  // (scroll mode) and as the page flips (single mode), on the streamer AND every viewer —
+  // it no longer freezes at the cover / page 1 in scroll mode.
+  const [reportedPage, setReportedPage] = useState<number | null>(null);
+  // When the synced page prop changes (a producer flip / a viewer following the streamer),
+  // adopt it as the source of truth so the local report doesn't shadow a real sync update.
+  useEffect(() => {
+    setReportedPage(null);
+  }, [page]);
+  const displayPage = reportedPage != null ? reportedPage : page;
+  // SCROLL-POSITION SYNC (§2): the frame's fine-grained scroll position as a NORMALIZED
+  // "pages-as-float" coordinate (section index + within-section fraction, e.g. 4.5 =
+  // halfway down section 4). Fed by the EPUB scroll report ({e:'page',n,frac}); broadcast
+  // by a PRODUCER surface as `presenter.scrollPos` so every viewer converges to the EXACT
+  // scroll offset (not just the section). A ref so it rides the presenter effect without an
+  // extra render. Mirrors core's `docScrollPosOf` contract.
+  const scrollPosRef = useRef<number>(0);
   // Effective mode: the streamer's synced mode (mirrored) unless a viewer has locally
   // toggled. We honour the prop `mode` (the source of truth the parent owns) and fall
   // back to 'single'. When the parent doesn't manage mode (no onModeChange), keep a
@@ -252,9 +274,19 @@ export function DocOverlay({
   // onPresenter, so this never fires for them. Lets the dashboard drive the SAME shared
   // DocOverlay as the viewer.
   useEffect(() => {
-    onPresenter?.({ page, zoom: vp.scale, panX: vp.panX, panY: vp.panY });
+    // Carry the view mode + the latest scroll-position so a producer's pan/zoom broadcast in
+    // scroll mode keeps the synced scrollPos (the EPUB scroll report's onPresenter push above
+    // handles pure-scroll updates; this keeps them consistent on a transform change too).
+    onPresenter?.({
+      page,
+      zoom: vp.scale,
+      panX: vp.panX,
+      panY: vp.panY,
+      mode: viewMode,
+      ...(viewMode === 'scroll' ? { scrollPos: scrollPosRef.current } : null),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vp.scale, vp.panX, vp.panY, page]);
+  }, [vp.scale, vp.panX, vp.panY, page, viewMode]);
 
   // Drag-pan via PanResponder (the cross-platform pointer/touch drag). Only pans when
   // zoomed in (web onPointerDown guard) and marks takeover on a real drag. Bound once
@@ -310,12 +342,27 @@ export function DocOverlay({
     if (r.e === 'pages') {
       setDiscoveredPages(r.n);
     } else if (r.e === 'page') {
+      // #6 PAGE PROGRESS: always record the frame's current page/section LOCALLY so the chrome
+      // shows a live "X / Y" in EVERY mode + on BOTH planes (single page-flip, scroll relocate,
+      // EPUB scroll) — even on a viewer that doesn't own onPageNav, and even before a producer
+      // round-trip lands the synced page back. This is what stops the count freezing at 1.
+      setReportedPage(r.n);
+      // SCROLL-POSITION SYNC (§2): compose the frame's fine-grained position into a single
+      // normalized "pages-as-float" coordinate (section + within-section fraction). Keep it in a
+      // ref so the producer's presenter broadcast (below) carries `scrollPos` — viewers converge
+      // to the EXACT offset via `docScrollPosOf(presenter)`, not just the section.
+      const frac = typeof r.frac === 'number' && Number.isFinite(r.frac) ? Math.max(0, Math.min(1, r.frac)) : 0;
+      scrollPosRef.current = r.n + frac;
       // R2 (scroll-position sync): in SCROLL mode the frame relocating to a new section is the
       // streamer's scroll position. Forward it to `onPageNav` so the PRODUCER broadcasts it as
       // the synced page (a viewer omits onPageNav → no-op + follows via its `page` prop). Only
       // in scroll mode — single mode's page is driven by the chrome, so forwarding the engine's
-      // relocate there would risk a display↔relocate loop.
-      if (viewMode === 'scroll') onPageNav?.(r.n);
+      // relocate there would risk a display↔relocate loop. We ALSO push the freshest scrollPos
+      // up via `onPresenter` so the fine-grained offset broadcasts even between page-index flips.
+      if (viewMode === 'scroll') {
+        onPageNav?.(r.n);
+        onPresenter?.({ page: r.n, zoom: vp.scale, panX: vp.panX, panY: vp.panY, mode: 'scroll', scrollPos: scrollPosRef.current });
+      }
     } else if (r.e === 'tf') {
       markTakeover();
       setVp(clampPan({ scale: clampDocZoom(r.s), panX: r.x, panY: r.y }, containerRef.current));
@@ -449,7 +496,10 @@ export function DocOverlay({
           ALWAYS show (web parity §6c). */}
       <DocChrome
         filename={title}
-        page={page}
+        // #6: the LIVE position (scroll relocate / page flip), so "X / Y" advances in scroll
+        // mode + on viewers — not the possibly-stale synced prop. Falls back to `page` until
+        // the frame first reports. Drives both the count and the prev/next basis.
+        page={displayPage}
         total={effectiveTotal}
         scale={vp.scale}
         onZoom={zoomable ? buttonZoom : undefined}
@@ -478,11 +528,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
-  leafFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // IMAGE fill (BUG 1 — web black screen): a `relative` filler whose child (`imageWrap`)
+  // ABSOLUTELY fills it. The old `alignItems/justifyContent:center` + a `height:'100%'`
+  // child relied on the rn-web flex height chain resolving — when it didn't, the `<img>`
+  // (a raw DOM child react-native-web doesn't size) collapsed to 0 and the slot went black.
+  // `position:relative` + an `absolute inset:0` child gives the image a definite box
+  // regardless of the flex chain. `object-contain` on the `<img>` keeps it letterboxed.
+  leafFill: { flex: 1, position: 'relative' },
   // Frame (PDF/EPUB WebView/iframe) must fill the viewport — stretch, never center
-  // (centering collapses a flex frame's width to 0 → the historic blank-doc bug).
-  frameFill: { flex: 1, alignSelf: 'stretch', width: '100%' },
-  imageWrap: { width: '100%', height: '100%' },
+  // (centering collapses a flex frame's width to 0 → the historic blank-doc bug). Also
+  // `relative` so the web iframe leaf's absolute-fill anchors to a positioned ancestor.
+  frameFill: { flex: 1, alignSelf: 'stretch', width: '100%', position: 'relative' },
+  // The image transform layer FILLS its `relative` parent absolutely (BUG 1) so the `<img>`
+  // always has a box. The pan/zoom transform composes onto this via `transformStyle`.
+  imageWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   placeholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   phPage: { color: 'rgba(255,255,255,0.85)', fontSize: 30, fontWeight: '900' },
   phTitle: { color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: '600', marginTop: 8, textAlign: 'center' },

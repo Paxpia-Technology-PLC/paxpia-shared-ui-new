@@ -455,7 +455,9 @@ const styles = StyleSheet.create({
   rootTransparent: { backgroundColor: 'transparent', borderRadius: 0 },
   // The board frame (WebView/iframe) must fill the window — stretch, never center
   // (centering collapses a flex frame's width to 0 → the historic blank-frame bug).
-  frameFill: { flex: 1, alignSelf: 'stretch', width: '100%' },
+  // `position:relative` so the web iframe leaf's `absolute inset-0` fill (BUG 1 — no
+  // height-chain collapse) anchors to THIS box precisely, not the outer overlay root.
+  frameFill: { flex: 1, alignSelf: 'stretch', width: '100%', position: 'relative' },
   // A hidden-from-viewers board is greyed on the operator surface (still drawable).
   frameGhosted: { opacity: 0.4 },
   ghostBadge: {
