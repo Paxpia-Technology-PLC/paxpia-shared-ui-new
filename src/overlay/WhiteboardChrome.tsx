@@ -90,6 +90,13 @@ export interface WhiteboardChromeProps {
   hidden?: boolean;
   /** Flip the viewer-visibility toggle (operator). Omit to hide the toggle. */
   onVisibilityToggle?: () => void;
+  /** NAV-MODE state (operator, Message E#3 / 2026-06-23): true ⇒ NAVIGATE (pan/zoom) instead
+   *  of DRAW. For a placed board, nav mode pans/zooms the board; for an annotation-over-doc,
+   *  nav mode makes the layer pointer-transparent so the DOC underneath pans/zooms. When
+   *  `onNavModeToggle` is supplied a draw/move toggle renders (leading, operator). */
+  navMode?: boolean;
+  /** Flip draw ⇆ navigate (operator). Omit to hide the toggle. */
+  onNavModeToggle?: () => void;
 }
 
 export function WhiteboardChrome({
@@ -113,6 +120,8 @@ export function WhiteboardChrome({
   onTransparentToggle,
   hidden = false,
   onVisibilityToggle,
+  navMode = false,
+  onNavModeToggle,
 }: WhiteboardChromeProps) {
   // Role resolution: explicit `role` wins; else operator ⇔ editable (back-compat).
   const resolvedRole: WhiteboardRole = role ?? (editable ? 'operator' : 'viewer');
@@ -131,6 +140,7 @@ export function WhiteboardChrome({
   const showClear = isOperator && !!onClear;
   const showTransparent = isOperator && !!onTransparentToggle;
   const showVisibility = isOperator && !!onVisibilityToggle;
+  const showNavMode = isOperator && !!onNavModeToggle;
 
   const showZoom = !!onZoom;
   const showFullscreen = !!onFullscreen;
@@ -181,6 +191,21 @@ export function WhiteboardChrome({
       <View style={styles.brandIcon} accessibilityRole="image" accessibilityLabel="whiteboard">
         <Text style={styles.brandGlyph}>✎</Text>
       </View>
+
+      {/* NAV-MODE toggle (draw ⇆ navigate): the leading control so the operator can switch
+          between drawing and panning/zooming (a placed board pans/zooms itself; an annotation
+          lets the DOC underneath pan/zoom). Active styling when navigating. */}
+      {showNavMode ? (
+        <Pressable
+          onPress={() => onNavModeToggle?.()}
+          style={[styles.pillBtn, navMode && styles.pillBtnActive]}
+          accessibilityRole="button"
+          accessibilityLabel={navMode ? 'switch to draw' : 'switch to navigate'}
+          accessibilityState={{ selected: navMode }}
+        >
+          <Text style={[styles.pillText, navMode && styles.pillTextActive]}>{navMode ? '✋ Move' : '✎ Draw'}</Text>
+        </Pressable>
+      ) : null}
 
       {/* COLOUR DROPDOWN (Message F#2): a single swatch button that toggles a tight popup
           of the palette, instead of an always-expanded inline list. */}

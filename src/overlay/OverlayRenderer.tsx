@@ -31,7 +31,7 @@ import type {
 } from '@paxpia/core';
 import type { LeafAdapter } from './LeafAdapter';
 import { ParticipationOverlay } from './ParticipationOverlay';
-import { DocOverlay } from './DocOverlay';
+import { DocOverlay, type DocAnnotationLayerProps } from './DocOverlay';
 import { WhiteboardOverlay } from './WhiteboardOverlay';
 
 /** A non-interactive preview view: no votes recorded, empty tallies, vote is a no-op.
@@ -71,6 +71,11 @@ export interface OverlayRendererProps {
   /** DOC: called when the user toggles single ⇆ scroll (streamer rebroadcasts; viewer
    *  enters local takeover). Omit to hide the toggle. */
   onDocModeChange?: (m: DocViewMode) => void;
+  /** DOC ANNOTATION (Message D item 2): the whiteboard-on-doc annotation layer for a
+   *  `doc` overlay. When supplied (and `on`), a transparent WhiteboardOverlay paints the
+   *  active `wbann:…` board over the doc. The streamer toggles + draws; viewers render
+   *  read-only. Omit ⇒ no annotation layer (the doc renders exactly as before). */
+  docAnnotation?: DocAnnotationLayerProps;
   /** WHITEBOARD: the synced stroke set (core WbBoardState.strokes, folded by `applyWb`
    *  in the shell). Applies regardless of takeover — strokes are content, transform is
    *  view. Required to render a `whiteboard` overlay's content. */
@@ -88,6 +93,12 @@ export interface OverlayRendererProps {
   onWbRedo?: () => void;
   /** WHITEBOARD EDITABLE: whether a redo is currently possible (greys the Redo button). */
   wbCanRedo?: boolean;
+  /** WHITEBOARD: SYNCED transparent-background flag (from the board payload on the viewer;
+   *  the operator's controlled toggle on the studio surface). True ⇒ the board page renders
+   *  alpha-0 so the scene composites through. Rides `scene.sync` so every viewer matches. */
+  wbTransparent?: boolean;
+  /** WHITEBOARD OPERATOR: flip the transparent-background state (studio surface). */
+  onWbTransparentChange?: (next: boolean) => void;
   /** WHITEBOARD OPERATOR: viewer-visibility state — true ⇒ hidden from viewers (operator
    *  keeps a ghosted copy). Controlled when supplied + `onWbHiddenChange` flips it. */
   wbHidden?: boolean;
@@ -109,6 +120,7 @@ export function OverlayRenderer({
   onDocPageNav,
   docMode,
   onDocModeChange,
+  docAnnotation,
   wbStrokes,
   wbEditable = false,
   onWbDraw,
@@ -116,6 +128,8 @@ export function OverlayRenderer({
   onWbUndo,
   onWbRedo,
   wbCanRedo,
+  wbTransparent,
+  onWbTransparentChange,
   wbHidden,
   onWbHiddenChange,
   onWbCapture,
@@ -145,6 +159,7 @@ export function OverlayRenderer({
           onPageNav={onDocPageNav}
           mode={docMode}
           onModeChange={onDocModeChange}
+          annotation={docAnnotation}
           leaf={leaf}
         />
       );
@@ -166,6 +181,8 @@ export function OverlayRenderer({
           onTakeOver={onDocTakeOver}
           onResync={onDocResync}
           editable={wbEditable}
+          transparent={wbTransparent}
+          onTransparentChange={onWbTransparentChange}
           onDraw={onWbDraw}
           onClear={onWbClear}
           onUndo={onWbUndo}

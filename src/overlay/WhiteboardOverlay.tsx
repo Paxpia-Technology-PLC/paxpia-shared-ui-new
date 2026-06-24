@@ -110,6 +110,18 @@ export interface WhiteboardOverlayProps {
    *  data url. The platform shell saves/shares it (mobile: CameraRoll/share; web: <a
    *  download>). Omit to hide the screenshot button. */
   onCapture?: (dataUrl: string) => void;
+  /** NAV-MODE (operator): true ⇒ NAVIGATE (pan/zoom) instead of DRAW. Controlled when
+   *  supplied (the DocOverlay annotation drives it so it can toggle the layer's pointer
+   *  pass-through); else owned locally so a placed board's draw/move toggle works standalone.
+   *  In nav mode the frame is non-editable so the shared pan/zoom gestures take over. */
+  navMode?: boolean;
+  /** Flip draw ⇆ navigate (operator). Supplying it lifts nav-mode to the parent. */
+  onNavModeChange?: (next: boolean) => void;
+  /** ANNOTATION MODE (whiteboard-on-doc, Message D item 2): forces a TRANSPARENT background
+   *  (it overlays the doc), HIDES the transparent + visibility toggles (the doc-chrome pen IS
+   *  the visibility control + transparency is decided), and makes drawing work at ANY doc zoom
+   *  (the DOC owns pan/zoom). Default false (a normal placed board). */
+  annotation?: boolean;
   /** Whether the chrome should render its refit control. */
   chrome?: { fullscreen?: boolean };
   /** The injected leaf (the WebView host). The ONLY per-platform decode. */
@@ -136,6 +148,9 @@ export function WhiteboardOverlay({
   hidden: hiddenProp,
   onHiddenChange,
   onCapture,
+  navMode: navModeProp,
+  onNavModeChange,
+  annotation: annotationMode = false,
   chrome,
   leaf,
 }: WhiteboardOverlayProps) {
@@ -146,10 +161,24 @@ export function WhiteboardOverlay({
   const resolvedRole: WhiteboardRole = role ?? (editable ? 'operator' : 'viewer');
   const isOperator = resolvedRole === 'operator';
 
+  // NAV-MODE (operator): navigate (pan/zoom) vs draw. Controlled when the parent supplies it
+  // (the annotation lifts it to toggle the doc's pointer pass-through); else owned locally so
+  // a placed board's toggle works standalone. In nav mode the frame is NON-editable so the
+  // shared transform gestures pan/zoom; in draw mode the pen captures.
+  const [navModeLocal, setNavModeLocal] = useState(false);
+  const navMode = navModeProp ?? navModeLocal;
+  const toggleNavMode = () => {
+    const next = !navMode;
+    if (onNavModeChange) onNavModeChange(next);
+    else setNavModeLocal(next);
+  };
+
   // Transparent-background state. Controlled when `transparentProp` is supplied (the studio
   // lifts it); otherwise the overlay owns it locally so the toggle works standalone (demo).
   const [transparentLocal, setTransparentLocal] = useState<boolean>(!!transparentProp);
-  const transparent = transparentProp ?? transparentLocal;
+  // Annotation mode is ALWAYS transparent (it overlays the doc) — the toggle is hidden, so the
+  // flag is forced rather than controlled.
+  const transparent = annotationMode ? true : (transparentProp ?? transparentLocal);
   const toggleTransparent = () => {
     const next = !transparent;
     if (onTransparentChange) onTransparentChange(next);
@@ -272,22 +301,27 @@ export function WhiteboardOverlay({
   // background / editability change — the host reloads the frame with the new snapshot
   // (the LeafAdapter seam carries no per-stroke push, so the snapshot is the content
   // wire). Strokes apply regardless of takeover (content, not view).
+  // The frame is EDITABLE (the pen captures) in DRAW mode; in NAV mode it's non-editable so
+  // the shared pan/zoom gestures take over. A viewer frame is never editable.
+  const frameEditable = (editable || isOperator) && !navMode;
   const html = useMemo(
     () =>
       buildWhiteboardHtml({
         canvas: payload.canvas,
         backgroundUrl: payload.backgroundUrl,
         initialStrokes: strokes,
-        // The pen captures for an OPERATOR (editable author); a viewer frame ships no
-        // authoring code. transparent makes the page alpha-0 so the scene shows through.
-        editable: editable || isOperator,
+        editable: frameEditable,
         transparent,
+        // DRAW mode ALWAYS draws — even when zoomed + dragging (panning is NAV mode, not a
+        // zoomed-drag hijack). So a pointer-down starts a stroke regardless of scale whenever
+        // the frame is editable (placed board OR annotation).
+        alwaysDraw: frameEditable,
         // The chrome's active swatch/width seed the authoring pen; selecting either rebuilds
         // the frame so the NEXT stroke carries the new colour/width (the wire IS the snapshot).
         penColor,
         penWidth,
       }),
-    [payload.canvas, payload.backgroundUrl, strokes, editable, isOperator, transparent, penColor, penWidth],
+    [payload.canvas, payload.backgroundUrl, strokes, frameEditable, transparent, penColor, penWidth],
   );
 
   // Undo greys out when there's nothing to undo; redo is parent-driven (it owns the stack).
@@ -300,7 +334,7 @@ export function WhiteboardOverlay({
     // The overlay is ONE self-contained window: the board fills it edge-to-edge and the
     // control rails float ABSOLUTELY on the window's own edges (NOT a sibling column).
     // Same overlay in dash-preview / live-controls / web-viewer — only the role differs.
-    <View style={styles.root} onLayout={onViewportLayout}>
+    <View style={[styles.root, annotationMode && styles.rootTransparent]} onLayout={onViewportLayout}>
       {/* The board frame fills the whole overlay (stretch, never center — a flex frame
           with no intrinsic width collapses to 0 under alignItems:center). The frame
           applies the shared {scale,panX,panY} transform internally and reports local
@@ -344,10 +378,16 @@ export function WhiteboardOverlay({
             onRedo={onRedo}
             canRedo={canRedo}
             onClear={onClear}
+            // NAV-MODE toggle (draw ⇆ navigate) — always available to the operator.
+            navMode={navMode}
+            onNavModeToggle={toggleNavMode}
+            // Transparent + visibility toggles are HIDDEN in annotation mode (it's always
+            // transparent + its visibility is the doc-chrome pen) — omit the callbacks so the
+            // chrome doesn't render them. A placed board keeps both.
             transparent={transparent}
-            onTransparentToggle={toggleTransparent}
+            onTransparentToggle={annotationMode ? undefined : toggleTransparent}
             hidden={hidden}
-            onVisibilityToggle={toggleHidden}
+            onVisibilityToggle={annotationMode ? undefined : toggleHidden}
           />
         </View>
       ) : null}
@@ -384,15 +424,27 @@ export function WhiteboardOverlay({
 }
 
 const styles = StyleSheet.create({
-  // The root IS the overlay window: the board fills it and the rail floats on its edge.
+  // The root IS the overlay window: the board fills it edge-to-edge and the rail floats on
+  // its edge. It FILLS its container by SIZE (`width/height:100%`), not only `flex:1` — so it
+  // fills whether the parent is a flex column (mobile slot / the demos) OR a plain block div
+  // (the web studio tiles: GoLive/ScenesEditor/StreamView wrap it in `h-full` block divs where
+  // `flex:1` alone collapses to content height → the "mostly empty space + bottom rail in the
+  // middle" bug). The canvas = the container, no forced aspect (the SVG `__fitBoard`s to the
+  // measured rect). `minHeight:0` keeps it shrinkable inside a flex parent.
   root: {
     flex: 1,
+    width: '100%',
+    height: '100%',
     position: 'relative',
     minHeight: 0,
     overflow: 'hidden',
     borderRadius: 10,
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
+  // ANNOTATION mode (whiteboard-over-doc): NO root tint + no rounding — the layer must be
+  // fully see-through so the doc underneath shows (the strokes are the only opaque pixels).
+  // Pairs with the transparent frame (bgOverride) + the transparent iframe element (web leaf).
+  rootTransparent: { backgroundColor: 'transparent', borderRadius: 0 },
   // The board frame (WebView/iframe) must fill the window — stretch, never center
   // (centering collapses a flex frame's width to 0 → the historic blank-frame bug).
   frameFill: { flex: 1, alignSelf: 'stretch', width: '100%' },

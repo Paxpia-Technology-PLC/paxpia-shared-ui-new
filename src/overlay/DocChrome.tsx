@@ -40,6 +40,14 @@ export interface DocChromeProps {
   /** Toggle single ⇆ scroll. The streamer's toggle rides the synced presenter so
    *  viewers mirror it; a viewer's toggle is a local takeover. */
   onModeChange?: (m: DocViewMode) => void;
+  /** ANNOTATION (STREAMER-ONLY, Message D item 2): whether the whiteboard-on-doc
+   *  annotation layer is currently ON. Shown as a pressed/unpressed pen pill. */
+  annOn?: boolean;
+  /** ANNOTATION (STREAMER-ONLY): toggle the annotation layer on/off. Supplying it is
+   *  what marks an OPERATOR doc chrome — a viewer NEVER gets this callback (viewers
+   *  render annotations but can't draw), so the pen pill is operator-only by
+   *  construction. Omit to hide the pen toggle entirely (every viewer surface). */
+  onAnnToggle?: (next: boolean) => void;
 }
 
 export function DocChrome({
@@ -52,12 +60,17 @@ export function DocChrome({
   onPageNav,
   mode,
   onModeChange,
+  annOn = false,
+  onAnnToggle,
 }: DocChromeProps) {
   const canPrev = !!onPageNav && page > 0;
   const canNext = !!onPageNav && page < total - 1;
   const showZoom = !!onZoom;
   const showFullscreen = !!onFullscreen;
   const showMode = !!onModeChange;
+  // The annotation pen toggle is OPERATOR-ONLY: it shows iff the parent supplies
+  // `onAnnToggle` (a viewer surface never does — it renders annotations, can't draw).
+  const showAnn = !!onAnnToggle;
   const activeMode: DocViewMode = mode === 'scroll' ? 'scroll' : 'single';
   return (
     <View style={styles.bar}>
@@ -88,10 +101,23 @@ export function DocChrome({
         ) : null}
       </View>
 
-      {/* RIGHT: the MODE TOGGLE (always available — §4) + zoom/fullscreen where it
-          makes sense (omitted when the leaf owns its own zoom). */}
-      {showMode || showZoom || showFullscreen ? (
+      {/* RIGHT: the ANNOTATION pen toggle (operator-only) + the MODE TOGGLE (always
+          available — §4) + zoom/fullscreen where it makes sense (omitted when the leaf
+          owns its own zoom). */}
+      {showAnn || showMode || showZoom || showFullscreen ? (
         <View style={styles.right}>
+          {showAnn ? (
+            <Pressable
+              testID="doc-ann-toggle"
+              accessibilityRole="button"
+              accessibilityLabel="toggle annotation"
+              accessibilityState={{ selected: annOn }}
+              onPress={() => onAnnToggle?.(!annOn)}
+              style={[styles.annBtn, annOn && styles.annBtnActive]}
+            >
+              <Text style={[styles.annGlyph, annOn && styles.annGlyphActive]}>✎</Text>
+            </Pressable>
+          ) : null}
           {showMode ? (
             <View style={styles.modeToggle} accessibilityRole="tablist">
               <Pressable
@@ -167,6 +193,18 @@ const styles = StyleSheet.create({
   modeBtnActive: { backgroundColor: 'rgba(255,255,255,0.18)' },
   modeGlyph: { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: '700' },
   modeGlyphActive: { color: '#fff' },
+  // The annotation pen pill (operator-only): a quiet outline when off, a bright accent
+  // when ON so the streamer can see at a glance that draw-over-doc is engaged.
+  annBtn: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginRight: 2,
+  },
+  annBtnActive: { backgroundColor: '#6d5efc' },
+  annGlyph: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '800' },
+  annGlyphActive: { color: '#fff' },
   zoomBtn: {
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 6,

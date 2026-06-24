@@ -45,9 +45,12 @@ import {
   type DocRenderPlan,
   type DocViewMode,
   type DocViewport,
+  type WbStroke,
+  type WhiteboardPayload,
 } from '@paxpia/core';
 import type { LeafAdapter } from './LeafAdapter';
 import { DocChrome } from './DocChrome';
+import { WhiteboardOverlay } from './WhiteboardOverlay';
 
 export interface DocOverlayProps {
   /** The shared render plan for the CURRENT page (from core `resolveDocRender`). The
@@ -84,6 +87,43 @@ export interface DocOverlayProps {
   chrome?: { fullscreen?: boolean };
   /** The injected leaf (image + WebView host). The ONLY per-platform decode. */
   leaf: LeafAdapter;
+  /** WHITEBOARD-ON-DOC ANNOTATION (Message D item 2): an optional annotation layer drawn
+   *  OVER the doc content. A transparent `WhiteboardOverlay` is composited on top of the
+   *  doc viewport (sized to it), keyed by a doc+page-derived board id (`wbann:…`). When
+   *  absent, the doc renders exactly as before — annotation is purely additive. The
+   *  STREAMER drives it (toggle + draw); VIEWERS render the strokes but cannot draw. */
+  annotation?: DocAnnotationLayerProps;
+}
+
+/** The annotation-layer slice of `DocOverlayProps`. Shared by the streamer (toggle +
+ *  draw) and the viewer (render-only) — the role is inferred from which callbacks are
+ *  supplied (an `onDraw` ⇒ operator; its absence ⇒ viewer). */
+export interface DocAnnotationLayerProps {
+  /** The board identity + canvas geometry the annotation strokes render in. Built once
+   *  from the active `wbann:…` board id (its `payload.boardId` IS that id). The doc shell
+   *  treats it opaquely — `@paxpia/core` derives it via `annBoardId(docId,page,mode)`. */
+  payload: WhiteboardPayload;
+  /** The active annotation board's converged strokes (from `session.boardStrokes(annBoardId)`).
+   *  SWAPS as the doc/page swaps (the parent recomputes the board id + re-reads strokes),
+   *  so flipping a page presents that page's annotations and a doc switch presents the
+   *  other doc's — all from the converged store (persist + swap for free). */
+  strokes: WbStroke[];
+  /** Whether the annotation layer is currently ON. Streamer-controlled; viewers mirror
+   *  the streamer's flag so they render annotations exactly when the streamer draws. */
+  on: boolean;
+  /** STREAMER-ONLY: toggle the layer on/off. Supplying it marks the OPERATOR surface — the
+   *  doc chrome shows the pen pill ONLY then. Viewers omit it (render-only). */
+  onToggle?: (next: boolean) => void;
+  /** STREAMER-ONLY: a finished local stroke to broadcast (overlay.wb.stroke on the ann
+   *  board id). Supplying it (with `onToggle`) makes the layer editable for the operator. */
+  onDraw?: (stroke: WbStroke) => void;
+  /** STREAMER-ONLY: clear the annotation board (bump gen + broadcast overlay.wb.wipe). */
+  onClear?: () => void;
+  /** STREAMER-ONLY: undo the last local annotation stroke. */
+  onUndo?: () => void;
+  /** STREAMER-ONLY: redo the last undone annotation stroke; greys when false. */
+  onRedo?: () => void;
+  canRedo?: boolean;
 }
 
 export function DocOverlay({
@@ -98,9 +138,22 @@ export function DocOverlay({
   onModeChange,
   chrome,
   leaf,
+  annotation,
 }: DocOverlayProps) {
   const { ImageLeaf, WebViewHost } = leaf;
   const { title, page, pageCount, src, kind } = plan;
+  // The annotation layer is an OPERATOR surface when it can toggle (onToggle supplied);
+  // a viewer renders strokes but never draws. `annEditable` gates the draw rail + pen.
+  const annEditable = !!annotation?.onToggle && !!annotation?.onDraw;
+  // Render the annotation layer only when it's wired AND toggled ON. An operator with the
+  // layer OFF still shows the pen pill (to turn it on); a viewer with `on=false` shows
+  // nothing. Either way the doc itself is untouched.
+  const showAnnLayer = !!annotation && annotation.on;
+  // ANNOTATION NAV-MODE (W4): the operator toggles draw ⇆ navigate. In NAVIGATE mode the
+  // annotation layer becomes pointer-transparent so the DOC underneath pans/zooms (the
+  // annotation follows via its presenter); in DRAW mode it captures the pen. Owned here so
+  // this component controls the layer's `pointerEvents`.
+  const [annNavMode, setAnnNavMode] = useState(false);
   const isPdf = kind === 'pdf';
   const isEpub = kind === 'epub';
   const isImage = kind === 'image';
@@ -256,6 +309,13 @@ export function DocOverlay({
   const handleReport = (r: DocFrameReport) => {
     if (r.e === 'pages') {
       setDiscoveredPages(r.n);
+    } else if (r.e === 'page') {
+      // R2 (scroll-position sync): in SCROLL mode the frame relocating to a new section is the
+      // streamer's scroll position. Forward it to `onPageNav` so the PRODUCER broadcasts it as
+      // the synced page (a viewer omits onPageNav → no-op + follows via its `page` prop). Only
+      // in scroll mode — single mode's page is driven by the chrome, so forwarding the engine's
+      // relocate there would risk a display↔relocate loop.
+      if (viewMode === 'scroll') onPageNav?.(r.n);
     } else if (r.e === 'tf') {
       markTakeover();
       setVp(clampPan({ scale: clampDocZoom(r.s), panX: r.x, panY: r.y }, containerRef.current));
@@ -323,6 +383,51 @@ export function DocOverlay({
           </View>
         )}
 
+        {/* WHITEBOARD-ON-DOC ANNOTATION LAYER (Message D item 2) — a TRANSPARENT
+            WhiteboardOverlay composited absolutely OVER the doc content, sized to the
+            doc viewport. It paints the active `wbann:…` board's strokes; the operator
+            draws over the doc when toggled ON, the viewer renders read-only. The doc nav
+            (page/zoom chrome below) keeps working — the layer floats over the CONTENT
+            only, not the chrome. `pointerEvents` reconciles the two chromes: when ON the
+            operator's layer captures the pen; when OFF (or a viewer) the layer is
+            click-through so the doc's own pan/zoom gestures still land. */}
+        {showAnnLayer ? (
+          <View
+            style={StyleSheet.absoluteFill}
+            // DRAW mode (operator) → the layer CAPTURES the pen ('auto'). NAVIGATE mode (or a
+            // viewer) → the layer is click-through ('none') so the DOC underneath gets the
+            // pan/zoom gesture; the annotation then FOLLOWS via its presenter (below).
+            pointerEvents={annEditable && !annNavMode ? 'auto' : 'none'}
+          >
+            <WhiteboardOverlay
+              payload={annotation!.payload}
+              strokes={annotation!.strokes}
+              leaf={leaf}
+              // ANNOTATION mode: always transparent (overlays the doc), no transparent/
+              // visibility toggles (the doc-chrome pen is the visibility control), and draw
+              // works at any doc zoom (the doc owns pan/zoom).
+              annotation
+              role={annEditable ? 'operator' : 'viewer'}
+              editable={annEditable}
+              onDraw={annotation!.onDraw}
+              onClear={annotation!.onClear}
+              onUndo={annotation!.onUndo}
+              onRedo={annotation!.onRedo}
+              canRedo={annotation!.canRedo}
+              // NAV-MODE: controlled here so this component can flip the layer's pointer
+              // pass-through. The operator's draw/move toggle rides the annotation chrome.
+              navMode={annNavMode}
+              onNavModeChange={setAnnNavMode}
+              // FOLLOW THE DOC: the annotation mirrors the doc's current pan/zoom so strokes
+              // track the content as the doc is navigated (in nav mode the doc drives it; in
+              // draw mode you draw at the doc's current transform).
+              presenter={{ page, zoom: vp.scale, panX: vp.panX, panY: vp.panY }}
+              // No independent refit — the doc's chrome owns nav; the annotation just follows.
+              chrome={{ fullscreen: false }}
+            />
+          </View>
+        ) : null}
+
         {/* OUT-OF-SYNC banner (viewer only) — a colored pill at the TOP when the
             viewer has locally taken over, with a resync button on the LEFT that snaps
             them back to following the streamer's doc + page + transform. */}
@@ -352,13 +457,20 @@ export function DocOverlay({
         onPageNav={onPageNav}
         mode={viewMode}
         onModeChange={supportsMode ? changeMode : undefined}
+        // ANNOTATION (streamer-only): the pen pill shows iff `onToggle` is wired (operator).
+        // Viewers render annotations from `annotation.strokes` but never get this control.
+        annOn={annotation?.on ?? false}
+        onAnnToggle={annotation?.onToggle}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  // FILL by size (not only flex:1) so the doc fills its container whether the parent is a
+  // flex column (mobile/demos) or a plain block div (web studio tiles) — same fix + same
+  // reason as WhiteboardOverlay.root (the web wrappers are block `h-full` divs).
+  root: { flex: 1, width: '100%', height: '100%' },
   viewport: {
     flex: 1,
     minHeight: 0,
