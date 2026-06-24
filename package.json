@@ -12,17 +12,25 @@
     "./overlay": "./src/overlay/index.ts",
     "./gate": "./src/gate/index.ts",
     "./gift": "./src/gift/index.ts",
-    "./social": "./src/social/index.ts"
+    "./social": "./src/social/index.ts",
+    "./charts": "./src/charts/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "recharts": "^2.12.7"
+  },
+  "peerDependenciesMeta": {
+    "recharts": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
+    "recharts": "^2.12.7",
     "typescript": "^5.9.3"
   },
   "license": "UNLICENSED",
