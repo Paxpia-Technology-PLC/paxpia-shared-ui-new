@@ -394,17 +394,25 @@ export function WhiteboardOverlay({
 
       {/* BOTTOM NAV RAIL (both roles) — zoom + screenshot split onto their OWN bottom edge
           (Message F#1) so they never push/clip the draw rail or the board. Centred; box-none
-          so misses fall through to the board. */}
-      <View style={styles.chromeBottom} pointerEvents="box-none">
-        <WhiteboardChrome
-          placement="bottom"
-          role={resolvedRole}
-          scale={vp.scale}
-          onZoom={buttonZoom}
-          onFullscreen={chrome?.fullscreen !== false ? refit : undefined}
-          onScreenshot={showScreenshot ? requestCapture : undefined}
-        />
-      </View>
+          so misses fall through to the board.
+          ANNOTATION (whiteboard-over-doc, #5): SUPPRESSED. The DOC owns the single zoom/pan/
+          page control (its DocChrome); the annotation board already FOLLOWS the doc's transform
+          via its `presenter` (DocOverlay feeds the doc's live vp), so a second zoom rail here
+          is a duplicate that drifts. Hiding it leaves exactly ONE control — the doc's — driving
+          both layers in lockstep on web + mobile. (Refit + screenshot are already hidden in
+          annotation mode, so this rail was only the redundant ± zoom.) */}
+      {!annotationMode ? (
+        <View style={styles.chromeBottom} pointerEvents="box-none">
+          <WhiteboardChrome
+            placement="bottom"
+            role={resolvedRole}
+            scale={vp.scale}
+            onZoom={buttonZoom}
+            onFullscreen={chrome?.fullscreen !== false ? refit : undefined}
+            onScreenshot={showScreenshot ? requestCapture : undefined}
+          />
+        </View>
+      ) : null}
 
       {/* OUT-OF-SYNC banner (viewer only) — a coloured pill near the TOP when the viewer has
           locally taken over (kept clear of the bottom nav rail), with a resync button that

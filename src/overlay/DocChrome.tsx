@@ -170,6 +170,10 @@ const styles = StyleSheet.create({
     columnGap: 8,
     marginTop: 4,
     minHeight: 24,
+    // Chrome is a control strip, not copy — never let the filename / "X / Y" /
+    // icon glyphs become a text-selection target on web (#1). On react-native-web
+    // this emits `user-select: none`, which CSS-inherits to every <Text> below.
+    userSelect: 'none',
   },
   left: { flexDirection: 'row', alignItems: 'center', columnGap: 6, flex: 1, minWidth: 0 },
   right: { flexDirection: 'row', alignItems: 'center', columnGap: 2 },
