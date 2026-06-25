@@ -182,14 +182,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
-  glyph: { fontSize: 44, marginBottom: 2 },
-  title: { color: colors.text, fontSize: 17, fontWeight: '800', textAlign: 'center' },
+  // PARITY: emoji glyph centred + a lineHeight that's an INTEGER multiple-ish of the font so
+  // the glyph box is the same height on web (CSS line-box) and RN (text run). textAlign on the
+  // glyph keeps a wide emoji centred under rn-web (a bare <Text> there is left-aligned).
+  glyph: { fontSize: 44, lineHeight: 52, marginBottom: 2, textAlign: 'center' },
+  title: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '800', textAlign: 'center' },
+  // PARITY: a WHOLE-number fontSize (was 13.5) — rn-web keeps the sub-pixel size while RN
+  // rounds to device px, so a fractional size + lineHeight read as different leading on the
+  // two. 14/20 is the same multiple on both.
   subtitle: {
     color: 'rgba(255,255,255,0.66)',
-    fontSize: 13.5,
-    lineHeight: 19,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
     maxWidth: 360,
+    alignSelf: 'center',
   },
   actions: { flexDirection: 'row', alignItems: 'center', columnGap: 10, marginTop: 8 },
   primaryBtn: {

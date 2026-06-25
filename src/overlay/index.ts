@@ -2,6 +2,11 @@
 // component set (rn-web), consuming the @paxpia/core model + the injected LeafAdapter.
 export { OverlayRenderer } from './OverlayRenderer';
 export type { OverlayRendererProps } from './OverlayRenderer';
+// STREAM G2 — the shared cross-platform overlay animation primitives (count-up / pulse /
+// measured-px bar fill) the participation overlays build on. Exported so any future overlay
+// reuses the SAME rn-web↔RN-identical animation (no %-string width interpolation).
+export { useCountUp, usePulse, useBarFill } from './anim';
+export type { BarFill } from './anim';
 export { ParticipationOverlay, PollOverlay, QuizOverlay, VoteButtonOverlay } from './ParticipationOverlay';
 export { DocOverlay } from './DocOverlay';
 export type { DocOverlayProps, DocAnnotationLayerProps } from './DocOverlay';

@@ -16,13 +16,13 @@
 // gaps to whatever is behind, but a press that lands ON an option is the option's).
 // No page-level pan can swallow it because the option is the deepest hit target.
 //
-// ANIMATION: result bars grow with an Animated width and the count COUNTS UP toward
-// the new tally; a bar PULSES briefly when its tally increments. Same model on the
-// streamer preview + every viewer, so a vote visibly "lands". The MODEL (tallies/
-// total) is identical to web; only the Animated primitive differs from web's CSS.
+// ANIMATION (STREAM G2 — web/mobile parity): result bars grow with an animated PIXEL
+// width (measured track × p%, NOT an interpolated %-string — see anim.ts for why that
+// diverged on rn-web), the count COUNTS UP toward the new tally, and a bar PULSES briefly
+// when its tally increments. The hooks live in the shared `./anim` module so the streamer
+// preview + every viewer + web + mobile run the EXACT same animation.
 
-import { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, Animated, Easing, StyleSheet } from 'react-native';
+import { View, Text, Pressable, Animated, StyleSheet } from 'react-native';
 import {
   pct,
   type OverlayInstance,
@@ -32,64 +32,9 @@ import {
   type VoteButtonPayload,
 } from '@paxpia/core';
 import { colors } from '../theme/tokens';
+import { useBarFill, useCountUp, usePulse } from './anim';
 
 const BRAND = colors.brand;
-
-// ── shared count-up + pulse hooks (rn-web Animated, the cross-platform primitive
-//    that maps to web's CSS transition + RN's Animated.timing) ──────────────────
-
-/** Smoothly count a displayed number toward `target`. easeOutCubic so increments
- *  feel snappy. Animated value read in JS (useNativeDriver:false) to render text. */
-function useCountUp(target: number, ms = 450): number {
-  const [shown, setShown] = useState(target);
-  const anim = useRef(new Animated.Value(target)).current;
-  const shownRef = useRef(target);
-  shownRef.current = shown;
-  useEffect(() => {
-    if (target === shownRef.current) return;
-    anim.setValue(shownRef.current);
-    const id = anim.addListener(({ value }) => setShown(Math.round(value)));
-    const a = Animated.timing(anim, {
-      toValue: target,
-      duration: ms,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    });
-    a.start();
-    return () => {
-      a.stop();
-      anim.removeListener(id);
-    };
-    // Only re-run when the TARGET changes (shown read via ref, not a dep).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, ms]);
-  return shown;
-}
-
-/** True briefly right after `count` INCREASES — drives the pulse when a vote lands. */
-function usePulse(count: number, ms = 500): boolean {
-  const prev = useRef(count);
-  const [pulsing, setPulsing] = useState(false);
-  useEffect(() => {
-    if (count > prev.current) {
-      setPulsing(true);
-      const t = setTimeout(() => setPulsing(false), ms);
-      prev.current = count;
-      return () => clearTimeout(t);
-    }
-    prev.current = count;
-  }, [count, ms]);
-  return pulsing;
-}
-
-/** An Animated width %, kept in sync with `p` (the live percentage). */
-function useWidthPct(p: number) {
-  const anim = useRef(new Animated.Value(p)).current;
-  useEffect(() => {
-    Animated.timing(anim, { toValue: p, duration: 500, useNativeDriver: false }).start();
-  }, [p, anim]);
-  return anim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
-}
 
 // ── poll ─────────────────────────────────────────────────────────────────────
 
@@ -113,7 +58,7 @@ function ResultBar({
   const shownCount = useCountUp(count);
   const pulsing = usePulse(count);
   const p = pct(count, t);
-  const width = useWidthPct(p);
+  const { onTrackLayout, width } = useBarFill(p);
   return (
     <Pressable style={styles.barRow} onPress={onPress} disabled={!onPress} pointerEvents="box-only">
       <View style={styles.barLabelRow}>
@@ -123,7 +68,7 @@ function ResultBar({
         </Text>
         <Text style={[styles.barPct, pulsing && styles.barPctPulse]}>{pct(shownCount, t)}%</Text>
       </View>
-      <View style={styles.barTrack}>
+      <View style={styles.barTrack} onLayout={onTrackLayout}>
         <Animated.View
           style={[
             styles.barFill,
@@ -195,7 +140,7 @@ function VoteSide({
 }) {
   const pulsing = usePulse(count);
   const p = pct(count, total);
-  const width = useWidthPct(p);
+  const { onTrackLayout, width } = useBarFill(p);
   const isMine = mine === side.id;
   const clickable = !voted || (canRevote && !isMine);
   const sideBg = i === 0 ? 'rgba(244,63,94,0.2)' : 'rgba(56,189,248,0.2)';
@@ -205,6 +150,7 @@ function VoteSide({
       disabled={!clickable}
       onPress={() => onVote(side.id)}
       pointerEvents="box-only"
+      onLayout={onTrackLayout}
       style={[styles.voteSide, { backgroundColor: sideBg }, isMine && styles.voteSideMine]}
     >
       {voted ? (
@@ -280,13 +226,14 @@ function QuizOption({
   const pulsing = usePulse(count);
   const shownCount = useCountUp(count);
   const p = pct(count, total);
-  const width = useWidthPct(p);
+  const { onTrackLayout, width } = useBarFill(p);
   const clickable = !voted || (canRevote && !isMine);
   return (
     <Pressable
       disabled={!clickable}
       onPress={() => onVote(option.id)}
       pointerEvents="box-only"
+      onLayout={onTrackLayout}
       style={[styles.quizOption, isCorrect && styles.quizOptionCorrect, isWrongMine && styles.quizOptionWrong]}
     >
       {showTally ? <Animated.View style={[styles.quizFill, { width, opacity: pulsing ? 0.22 : 0.12 }]} /> : null}
@@ -351,7 +298,11 @@ export function ParticipationOverlay({ overlay, view }: { overlay: OverlayInstan
 }
 
 const styles = StyleSheet.create({
-  stack: { rowGap: 8 },
+  // PARITY: an RN View defaults to flexDirection:'column' + alignItems:'stretch', but a
+  // rn-web wrapper <div> can inherit a row/center context from its parent. Pin the column +
+  // stretch + full width EXPLICITLY so the participation content fills its rect the same way
+  // on both — its children (question, bars, rows) then span the full width identically.
+  stack: { width: '100%', alignSelf: 'stretch', flexDirection: 'column', alignItems: 'stretch', rowGap: 8 },
   center: { textAlign: 'center' },
   question: { color: '#fff', fontSize: 14, fontWeight: '700' },
   optionBtn: {
@@ -364,18 +315,22 @@ const styles = StyleSheet.create({
   optionLabel: { color: '#fff', fontSize: 13, fontWeight: '600' },
   footerNote: { color: 'rgba(255,255,255,0.5)', fontSize: 11 },
 
-  // ResultBar
-  barRow: { rowGap: 3 },
+  // ResultBar — full-width rows so the track measures the SAME px width on both platforms
+  // (the px-based fill in anim.ts depends on a stable measured track).
+  barRow: { width: '100%', alignSelf: 'stretch', rowGap: 3 },
   barLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   barLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 12, flex: 1, marginRight: 8 },
   barLabelMine: { color: BRAND, fontWeight: '700' },
   barPct: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontVariant: ['tabular-nums'] },
   barPctPulse: { color: BRAND },
-  barTrack: { height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
-  barFill: { height: '100%', borderRadius: 4 },
+  barTrack: { width: '100%', alignSelf: 'stretch', height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
+  // The fill height fills the track via top/bottom:0 (an absolute fill anchored to the
+  // track's left edge) — width is the animated PIXEL value from useBarFill, so it grows
+  // left→right identically on rn-web + RN. `left:0` anchors it; no %-string width.
+  barFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 4 },
 
   // VoteButton
-  voteRow: { flexDirection: 'row', columnGap: 8 },
+  voteRow: { width: '100%', alignSelf: 'stretch', flexDirection: 'row', columnGap: 8 },
   voteSide: {
     flex: 1,
     overflow: 'hidden',
@@ -387,9 +342,13 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
   },
   voteSideMine: { borderColor: BRAND },
-  voteFill: { position: 'absolute', left: 0, top: 0, bottom: 0 },
-  voteLabel: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  votePct: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 4 },
+  voteFill: { position: 'absolute', left: 0, top: 0, bottom: 0, zIndex: 0 },
+  // PARITY: on rn-web an absolutely-positioned sibling (the fill) paints ABOVE in-flow
+  // siblings unless they're given a stacking context; RN paints purely in document order.
+  // Pin the label/pct above the fill with zIndex on BOTH so the text never gets covered on
+  // web (it was always on top on mobile).
+  voteLabel: { color: '#fff', fontSize: 16, fontWeight: '800', zIndex: 1 },
+  votePct: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 4, zIndex: 1 },
 
   // Quiz
   quizKicker: { color: BRAND, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
@@ -402,7 +361,9 @@ const styles = StyleSheet.create({
   },
   quizOptionCorrect: { backgroundColor: 'rgba(16,185,129,0.2)', borderColor: 'rgba(52,211,153,0.9)' },
   quizOptionWrong: { backgroundColor: 'rgba(244,63,94,0.2)', borderColor: 'rgba(251,113,133,0.9)' },
-  quizFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#fff' },
+  quizFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#fff', zIndex: 0 },
+  // PARITY: keep the answer row above the absolute tally fill on web (zIndex), matching the
+  // document-order layering RN gives for free.
   quizOptionInner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -410,6 +371,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     columnGap: 8,
+    zIndex: 1,
   },
   quizLabel: { color: '#fff', fontSize: 13, fontWeight: '600', flex: 1 },
   quizPct: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontVariant: ['tabular-nums'] },

@@ -178,24 +178,33 @@ const styles = StyleSheet.create({
   left: { flexDirection: 'row', alignItems: 'center', columnGap: 6, flex: 1, minWidth: 0 },
   right: { flexDirection: 'row', alignItems: 'center', columnGap: 2 },
   count: { color: 'rgba(255,255,255,0.6)', fontSize: 12, flexShrink: 1 },
+  // PARITY: every chrome button CENTRES its glyph on both axes — `alignItems/justifyContent`
+  // centre the glyph box, and the glyph `<Text>` carries `textAlign:'center'` + a lineHeight so
+  // a 1-char icon sits dead-centre on rn-web (a bare <Text> there is left-aligned + uses the UA
+  // line-box) exactly as it does on RN. A `minWidth` keeps every icon the same footprint so the
+  // strip doesn't reflow differently per platform.
   navBtn: {
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 2,
+    minWidth: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   navBtnDisabled: { opacity: 0.3 },
-  navGlyph: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  navGlyph: { color: '#fff', fontSize: 14, lineHeight: 18, fontWeight: '700', textAlign: 'center' },
   modeToggle: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 7,
     padding: 1,
     marginRight: 2,
   },
-  modeBtn: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
+  modeBtn: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, minWidth: 22, alignItems: 'center', justifyContent: 'center' },
   modeBtnActive: { backgroundColor: 'rgba(255,255,255,0.18)' },
-  modeGlyph: { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontWeight: '700' },
+  modeGlyph: { color: 'rgba(255,255,255,0.55)', fontSize: 13, lineHeight: 16, fontWeight: '700', textAlign: 'center' },
   modeGlyphActive: { color: '#fff' },
   // The annotation pen pill (operator-only): a quiet outline when off, a bright accent
   // when ON so the streamer can see at a glance that draw-over-doc is engaged.
@@ -205,16 +214,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     marginRight: 2,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   annBtnActive: { backgroundColor: '#6d5efc' },
-  annGlyph: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '800' },
+  annGlyph: { color: 'rgba(255,255,255,0.6)', fontSize: 13, lineHeight: 16, fontWeight: '800', textAlign: 'center' },
   annGlyphActive: { color: '#fff' },
   zoomBtn: {
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 3,
+    minWidth: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  zoomGlyph: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  zoomGlyph: { color: '#fff', fontSize: 13, lineHeight: 16, fontWeight: '700', textAlign: 'center' },
   zoomPct: { color: colors.textMuted, fontSize: 10, width: 34, textAlign: 'center', fontVariant: ['tabular-nums'] },
 });

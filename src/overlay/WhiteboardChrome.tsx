@@ -379,14 +379,19 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.25)',
   },
   swatchActive: { borderColor: '#fff', borderWidth: 2 },
+  // PARITY: pill + icon buttons centre their label/glyph on BOTH axes so the rail reads the
+  // same on rn-web (where a bare <Text> is left-aligned + uses the UA line-box) and RN. The
+  // glyph carries `textAlign:'center'` + a lineHeight; icon buttons also `justifyContent`.
   pillBtn: {
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 7,
     paddingHorizontal: 7,
     paddingVertical: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pillBtnActive: { backgroundColor: colors.brand },
-  pillText: { color: '#fff', fontSize: 10, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  pillText: { color: '#fff', fontSize: 10, lineHeight: 14, fontWeight: '700', textAlign: 'center', fontVariant: ['tabular-nums'] },
   pillTextActive: { color: '#fff' },
   iconBtn: {
     backgroundColor: 'rgba(255,255,255,0.08)',
@@ -395,16 +400,19 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     minWidth: 24,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   iconBtnDisabled: { backgroundColor: 'rgba(255,255,255,0.03)' },
-  iconGlyph: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  iconGlyph: { color: '#fff', fontSize: 13, lineHeight: 16, fontWeight: '700', textAlign: 'center' },
   iconGlyphDisabled: { color: 'rgba(255,255,255,0.28)' },
   clearBtn: {
     backgroundColor: 'rgba(239,68,68,0.85)',
     borderRadius: 7,
     paddingHorizontal: 8,
     paddingVertical: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  clearText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  clearText: { color: '#fff', fontSize: 10, lineHeight: 14, fontWeight: '800', textAlign: 'center' },
   zoomPct: { color: colors.textMuted, fontSize: 10, width: 34, textAlign: 'center', fontVariant: ['tabular-nums'] },
 });
