@@ -37,6 +37,7 @@ import {
 import {
   clampDocZoom,
   clampPan,
+  docScrollPosOf,
   fitViewport,
   panBy,
   zoomByFactor,
@@ -373,6 +374,26 @@ export function DocOverlay({
   // honours the shared transform); scroll mode is native-scrolled, so no zoom there.
   const zoomable = isImage || (isFrame && viewMode === 'single');
 
+  // SCROLL-POSITION SYNC (§2) — the WITHIN-section fraction a FOLLOWING viewer should
+  // converge to. The streamer broadcasts a single "pages-as-float" `scrollPos` (section +
+  // fraction); the section already rides the `page` prop (the frame relocates to it), so
+  // here we peel off ONLY the fractional remainder and hand it to the frame as `scrollFrac`
+  // — the host then posts a `{t:'pos',i:page,f:scrollFrac}` so the viewer lands on the
+  // streamer's EXACT offset, not just the section top. Gated to a FOLLOWING viewer in scroll
+  // mode: a producer/streamer surface is the source (its own scroll IS the truth, so we must
+  // not push a stale fraction back into its frame and fight its scroller), and a taken-over
+  // viewer is honouring its own focus. Undefined elsewhere ⇒ the contract's section-only
+  // back-compat path. `scrollPos - floor(scrollPos)` because the integer part is the section
+  // (== `page`); the frame's `pos` decoder splits the same way.
+  const isProducer = !!onPresenter;
+  const followScrollFrac =
+    isFrame && viewMode === 'scroll' && isViewer && !isProducer && !takenOver && presenter
+      ? (() => {
+          const pos = docScrollPosOf(presenter);
+          return pos - Math.floor(pos);
+        })()
+      : undefined;
+
   return (
     <View style={styles.root}>
       <View style={styles.viewport} onLayout={onViewportLayout}>
@@ -394,6 +415,9 @@ export function DocOverlay({
             />
           </View>
         ) : isEpub && src ? (
+          // SCROLL-POSITION SYNC: EPUB scroll mode also forwards the synced WITHIN-section
+          // `scrollFrac` (peeled off the presenter's scrollPos) so a following viewer
+          // converges to the streamer's EXACT scroll offset, not just the section.
           // RAW EPUB: the injected reader. Single mode paginates by section; scroll mode
           // is one continuous reader with NO nested scrollbar. Same stretch requirement.
           <View style={styles.frameFill}>
@@ -402,6 +426,7 @@ export function DocOverlay({
               mode={viewMode}
               page={page}
               pageCount={effectiveTotal}
+              scrollFrac={followScrollFrac}
               transform={viewMode === 'single' ? vp : null}
               onReport={handleReport}
             />

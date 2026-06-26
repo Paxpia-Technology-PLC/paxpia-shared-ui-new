@@ -19,7 +19,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { GiftToast } from '@paxpia/core';
-import { colors, radius, spacing, fontSize } from '../theme/tokens';
+import { absoluteFill, colors, radius, spacing, fontSize } from '../theme/tokens';
 
 /** giftId → display EMOJI. The gift sending panel renders each gift's emoji; this layer
  *  is the cross-platform gift FEED, so it must render the SAME per-gift glyph rather than
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   // Bottom-left stack (above the chat composer / chrome), bottom-up — the conventional
   // gift-feed corner. Absolute + transparent + non-interactive: it never blocks the video.
   layer: {
-    ...StyleSheet.absoluteFillObject,
+    ...absoluteFill,
     justifyContent: 'flex-end',
     alignItems: 'flex-start',
     paddingHorizontal: spacing.sm,

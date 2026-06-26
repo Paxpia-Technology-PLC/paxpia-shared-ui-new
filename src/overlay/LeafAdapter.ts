@@ -68,6 +68,15 @@ export interface WebViewHostProps {
   mode?: 'single' | 'scroll';
   /** The server-synced 0-based page (single mode) the leaf should display / scroll to. */
   page?: number;
+  /** SCROLL-POSITION SYNC (§2): the synced WITHIN-section scroll fraction (0..1) a
+   *  following viewer should converge to, on TOP of the section given by `page`. Derived
+   *  by the doc shell from the presenter's `scrollPos` (= scrollPos − floor(scrollPos)).
+   *  The host forwards it into the frame (a `{t:'pos',i:page,f:scrollFrac}` message via
+   *  `encodeSetScrollPos`) so the viewer lands on the streamer's EXACT scroll offset, not
+   *  just the section top. OPTIONAL / back-compat: absent ⇒ today's section-only follow
+   *  (the frame stays where the `page`/relocate put it). Only meaningful for a scroll-mode
+   *  EPUB; paged PDFs ignore it (their position IS the page). */
+  scrollFrac?: number;
   /** Total page count (scroll mode lays out this many page slots; single mode clamps). */
   pageCount?: number;
   /** The shared {scale,panX,panY} transform the shell wants the frame to FOLLOW (the

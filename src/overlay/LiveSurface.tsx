@@ -20,7 +20,7 @@
 import { type ReactNode } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Avatar } from '../components/Avatar';
-import { colors } from '../theme/tokens';
+import { absoluteFill, colors } from '../theme/tokens';
 
 export interface LiveSurfaceProps {
   /** The single shared signal (from the gate / `manifestHasVideoSource`). True ⇒
@@ -70,7 +70,7 @@ export function LiveSurface({ expectVideo, title, avatarUri, name, video, childr
           empty regions to the surface, but a press on an overlay control is owned by
           that control (§6b). */}
       {children ? (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <View style={absoluteFill} pointerEvents="box-none">
           {children}
         </View>
       ) : null}
@@ -80,9 +80,9 @@ export function LiveSurface({ expectVideo, title, avatarUri, name, video, childr
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
-  fill: { ...StyleSheet.absoluteFillObject },
+  fill: { ...absoluteFill },
   audioSurface: {
-    ...StyleSheet.absoluteFillObject,
+    ...absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     rowGap: 16,

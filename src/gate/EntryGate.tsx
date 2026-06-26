@@ -19,7 +19,7 @@ import { useMemo, type ComponentType } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { type GateState, type GateStep } from '@paxpia/core';
 import { Avatar } from '../components/Avatar';
-import { colors } from '../theme/tokens';
+import { absoluteFill, colors } from '../theme/tokens';
 
 /** The minimal Pressable contract this shell needs. Deliberately loose (props: any) so
  *  BOTH react-native's `Pressable` AND RNGH's `Pressable` (slightly different event +
@@ -170,8 +170,8 @@ export function EntryGate({
 }
 
 const styles = StyleSheet.create({
-  root: { ...StyleSheet.absoluteFillObject, backgroundColor: '#0a0816', overflow: 'hidden' },
-  center: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, rowGap: 14 },
+  root: { ...absoluteFill, backgroundColor: '#0a0816', overflow: 'hidden' },
+  center: { ...absoluteFill, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, rowGap: 14 },
   identity: { alignItems: 'center', rowGap: 12 },
   title: { color: '#fff', fontSize: 16, fontWeight: '800', textAlign: 'center' },
   logoRow: { flexDirection: 'row', alignItems: 'center', columnGap: 7 },

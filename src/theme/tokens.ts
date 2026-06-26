@@ -40,3 +40,23 @@ export const fontSize = {
 } as const;
 
 export type PaxpiaColors = typeof colors;
+
+// `absoluteFill` — a framework-free replacement for `StyleSheet.absoluteFillObject`.
+//
+// `StyleSheet.absoluteFillObject` exists at RUNTIME in both react-native and
+// react-native-web, but the RN 0.84 type surface this package compiles against
+// (Paxpia-mobile's vendored `react-native/types`) doesn't declare it on `typeof
+// StyleSheet`, so `...StyleSheet.absoluteFillObject` raised TS2551 under the
+// mobile tsconfig (Metro-safe at runtime, but a type error for the release
+// baseline). This literal is byte-identical to RN's own `absoluteFillObject`
+// value, is a plain ViewStyle (type-clean under both shared-ui's and mobile's
+// tsconfig), and renders identically on web + mobile. Spread it where the code
+// previously spread `StyleSheet.absoluteFillObject`, or use it directly as a
+// style value where it previously used `StyleSheet.absoluteFill`.
+export const absoluteFill = {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+} as const;

@@ -18,7 +18,7 @@
 import { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { canRejoin, type RoomStatus } from '@paxpia/core';
-import { colors } from '../theme/tokens';
+import { absoluteFill, colors } from '../theme/tokens';
 
 /** The status set this shell paints. A superset of core's `RoomStatus` blocking states
  *  plus `'not-found'` — the "this room/stream id doesn't exist" case web hits on a bad
@@ -175,7 +175,7 @@ export function StreamStatus({
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     rowGap: 10,
