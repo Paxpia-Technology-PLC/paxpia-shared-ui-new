@@ -22,3 +22,14 @@ export * from './gift';
 // Social view layer (#2, §Comments) — CommentsPanel (rn-web threaded comments + composer),
 // consuming @paxpia/core/social. Props-driven; the host owns data + hydration + transport.
 export * from './social';
+// Messaging view layer (Stream 1, 2026-06-28) — the 8-kind MessageRenderer + ThreadList +
+// ThreadView + MessageComposer (rn-web), consuming @paxpia/core/messaging. Props-driven;
+// the host owns data + the MessagingApi + the realtime socket.
+export * from './messaging';
+// Search view layer (Stream 1) — SearchBar + SearchResults (rn-web), consuming
+// @paxpia/core/search. Props-driven; the host owns the SearchApi + navigation.
+export * from './search';
+// Watch-feed view layer (Stream 1) — VideoGrid + WatchFeed (rn-web), consuming
+// @paxpia/core/feed. Props-driven; the host owns the FeedApi + media playback (injected
+// via renderMedia so the platform supplies its real video player).
+export * from './feed';
