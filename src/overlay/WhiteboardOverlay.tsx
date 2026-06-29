@@ -49,6 +49,11 @@ import {
 import type { LeafAdapter } from './LeafAdapter';
 import { WhiteboardChrome, WB_COLORS, WB_WIDTHS, type WhiteboardRole } from './WhiteboardChrome';
 
+/** Where the operator DRAW rail floats — 'top' (horizontal, the default; web studio + the
+ *  legacy mobile draw panel) or 'left' (a VERTICAL rail on the left edge; the mobile
+ *  director studio per Noel's WI-4 ask). The bottom nav rail is unaffected. */
+export type WhiteboardChromePlacement = 'top' | 'left';
+
 export interface WhiteboardOverlayProps {
   /** The board identity + canvas geometry every front renders in (from the overlay
    *  instance payload). Strokes do NOT live here — they arrive via `strokes`. */
@@ -124,6 +129,11 @@ export interface WhiteboardOverlayProps {
   annotation?: boolean;
   /** Whether the chrome should render its refit control. */
   chrome?: { fullscreen?: boolean };
+  /** WHERE the operator DRAW rail floats — 'top' (horizontal, default) or 'left' (a
+   *  VERTICAL rail on the left edge, mobile studio — Noel's WI-4 ask). The same controls
+   *  either way; only the rail axis + edge differ. Viewers/the bottom nav rail are
+   *  unaffected. */
+  chromePlacement?: WhiteboardChromePlacement;
   /** The injected leaf (the WebView host). The ONLY per-platform decode. */
   leaf: LeafAdapter;
 }
@@ -152,8 +162,10 @@ export function WhiteboardOverlay({
   onNavModeChange,
   annotation: annotationMode = false,
   chrome,
+  chromePlacement = 'top',
   leaf,
 }: WhiteboardOverlayProps) {
+  const drawRailLeft = chromePlacement === 'left';
   const { WebViewHost } = leaf;
 
   // Role resolution: explicit `role` wins; else operator ⇔ editable. The chrome below
@@ -324,6 +336,17 @@ export function WhiteboardOverlay({
     [payload.canvas, payload.backgroundUrl, strokes, frameEditable, transparent, penColor, penWidth],
   );
 
+  // WI-9 TOUCH CAPTURE: while the operator is DRAWING (the frame is editable, not nav), the
+  // board must OWN its touches so a parent RN ScrollView / gesture can't steal the swipe and
+  // scroll ("you can see it slash the top" → broken strokes). The frame View claims the JS
+  // responder on touch-start/move when drawing, blocking any ancestor scroll from becoming
+  // responder. (Belt-and-braces with the HTML's `touch-action:none` + the WebView's
+  // `scrollEnabled={false}` — the native side; this is the RN-responder side.) In NAV mode we
+  // DON'T claim, so the shared pan/zoom + any intentional parent interaction still work, and a
+  // viewer frame never claims (it isn't capturing a pen).
+  const claimTouch = frameEditable;
+  const claimResponder = () => claimTouch;
+
   // Undo greys out when there's nothing to undo; redo is parent-driven (it owns the stack).
   const canUndo = (strokes?.length ?? 0) > 0;
   // The operator keeps a GHOSTED copy of a hidden board (still drawable); viewers never
@@ -340,7 +363,15 @@ export function WhiteboardOverlay({
           applies the shared {scale,panX,panY} transform internally and reports local
           gestures + draws + capture back via onReport. Ghosted (greyed) when the operator
           has hidden the overlay from viewers — they still author it. */}
-      <View style={[styles.frameFill, ghosted && styles.frameGhosted]}>
+      <View
+        style={[styles.frameFill, ghosted && styles.frameGhosted]}
+        // WI-9: claim the JS responder while DRAWING so a parent ScrollView/gesture can't
+        // steal the swipe (no-op on web; the real native capture is the HTML touch-action +
+        // the WebView scrollEnabled=false). Capture-phase so we win over a scrolling ancestor.
+        onStartShouldSetResponderCapture={claimResponder}
+        onMoveShouldSetResponderCapture={claimResponder}
+        onResponderTerminationRequest={() => !claimTouch}
+      >
         <WebViewHost
           html={html}
           transform={vp}
@@ -364,9 +395,9 @@ export function WhiteboardOverlay({
           The colour dropdown, width, undo/redo, clear, transparent + visibility toggles
           live here; a viewer never renders this rail. */}
       {isOperator ? (
-        <View style={styles.chromeTop} pointerEvents="box-none">
+        <View style={drawRailLeft ? styles.chromeLeft : styles.chromeTop} pointerEvents="box-none">
           <WhiteboardChrome
-            placement="top"
+            placement={drawRailLeft ? 'left' : 'top'}
             role={resolvedRole}
             editable={isOperator}
             color={penColor}
@@ -480,6 +511,20 @@ const styles = StyleSheet.create({
     left: 6,
     right: 6,
     flexDirection: 'row',
+    zIndex: 5,
+  },
+  // The LEFT DRAW rail (mobile studio — Noel's WI-4 ask): pinned to the overlay's own LEFT
+  // edge, vertically centred, so the operator's tool controls form a vertical rail on the
+  // left instead of a top bar. The rail sizes to its content (the WhiteboardChrome 'left'
+  // variant is a column), so it never covers the board's full height. box-none lets misses
+  // fall through to the board so drawing under/around the rail still works.
+  chromeLeft: {
+    position: 'absolute',
+    top: 6,
+    bottom: 6,
+    left: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
     zIndex: 5,
   },
   // The BOTTOM NAV rail: pinned to the overlay's own BOTTOM edge, centred (zoom + screenshot

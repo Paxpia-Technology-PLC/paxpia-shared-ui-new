@@ -40,12 +40,16 @@ export const WB_WIDTHS = [2, 4, 8, 14] as const;
 export type WhiteboardRole = 'operator' | 'viewer';
 
 /** Which edge this rail instance renders for. The shell mounts the component once per
- *  edge: 'top' = draw controls (operator), 'bottom' = nav/zoom/screenshot (both roles). */
-export type WhiteboardRailPlacement = 'top' | 'bottom';
+ *  edge: 'top' = draw controls (operator, horizontal), 'left' = the SAME draw controls
+ *  as a VERTICAL rail on the LEFT edge (mobile studio — Noel's WI-4 ask: tool controls
+ *  on the vertical, on the left, not a top bar), 'bottom' = nav/zoom/screenshot (both
+ *  roles). 'top' and 'left' are the same DRAW rail; only the axis differs. */
+export type WhiteboardRailPlacement = 'top' | 'left' | 'bottom';
 
 export interface WhiteboardChromeProps {
-  /** Which rail to render — 'top' (draw) or 'bottom' (nav). Defaults to a single combined
-   *  rail behaviour ('top') for back-compat callers that don't split. */
+  /** Which rail to render — 'top'/'left' (the DRAW rail; 'left' is the vertical variant
+   *  for mobile) or 'bottom' (nav). Defaults to a single combined rail behaviour ('top')
+   *  for back-compat callers that don't split. */
   placement?: WhiteboardRailPlacement;
   /** The control role. Defaults to operator when `editable`, else viewer — so the
    *  same overlay differs only by this knob across dash-preview / live / web-viewer. */
@@ -127,6 +131,8 @@ export function WhiteboardChrome({
   const resolvedRole: WhiteboardRole = role ?? (editable ? 'operator' : 'viewer');
   const isOperator = resolvedRole === 'operator';
   const isBottom = placement === 'bottom';
+  // The LEFT rail is the SAME draw rail as 'top', laid out VERTICALLY (mobile studio).
+  const isLeft = placement === 'left';
 
   // The colour dropdown open state (Message F#2 — a compact dropdown, not an inline list).
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -181,11 +187,13 @@ export function WhiteboardChrome({
     );
   }
 
-  // ── TOP (draw) rail — operator only. A viewer never renders this rail. ─────────
+  // ── TOP / LEFT (draw) rail — operator only. A viewer never renders this rail. ──
+  // 'top' lays the controls out horizontally; 'left' is the SAME rail laid out as a
+  // VERTICAL column on the left edge (mobile studio — Noel's WI-4 ask). One component.
   if (!isOperator) return null;
 
   return (
-    <View style={[styles.rail, styles.railTop]} accessibilityRole="toolbar">
+    <View style={[styles.rail, isLeft ? styles.railLeft : styles.railTop]} accessibilityRole="toolbar">
       {/* A SMALL board icon stands in for the removed full-component-name header
           (Message E#3) — it never obscures the controls (it's the first compact glyph). */}
       <View style={styles.brandIcon} accessibilityRole="image" accessibilityLabel="whiteboard">
@@ -222,7 +230,7 @@ export function WhiteboardChrome({
             <Text style={styles.caret}>{paletteOpen ? '▴' : '▾'}</Text>
           </Pressable>
           {paletteOpen ? (
-            <View style={styles.dropdownMenu}>
+            <View style={[styles.dropdownMenu, isLeft && styles.dropdownMenuLeft]}>
               {WB_COLORS.map((c) => (
                 <Pressable
                   key={c}
@@ -329,6 +337,21 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   railTop: {},
+  // The LEFT (draw) rail — the SAME draw controls laid out as a VERTICAL column hugging the
+  // left edge (mobile studio). Column direction + a centred cross-axis so every pill/icon
+  // stacks tidily; it sizes to its content height (alignSelf:flex-start) so it never
+  // stretches the board. Same translucent backing as the horizontal rail.
+  railLeft: {
+    flexDirection: 'column',
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    columnGap: 0,
+    rowGap: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 8,
+    borderRadius: 18,
+  },
   // The bottom (nav) rail hugs its own edge and only sizes to its content (centred by the
   // shell), so zoom+screenshot never widen/shift the draw rail or the board.
   railBottom: { alignSelf: 'center' },
@@ -371,6 +394,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
     zIndex: 20,
   },
+  // On the VERTICAL (left) rail the colour popup opens to the RIGHT of the trigger (beside
+  // the rail) instead of below it, so it doesn't cover the controls stacked underneath.
+  dropdownMenuLeft: { top: 0, left: 26, maxWidth: 96 },
   swatch: {
     width: 15,
     height: 15,

@@ -8,6 +8,11 @@ export type { OverlayRendererProps } from './OverlayRenderer';
 export { useCountUp, usePulse, useBarFill } from './anim';
 export type { BarFill } from './anim';
 export { ParticipationOverlay, PollOverlay, QuizOverlay, VoteButtonOverlay } from './ParticipationOverlay';
+// WI-7e — the ONE shared poll/quiz/vote-button AUTHORING editor (create/edit a draft +
+// live preview), consuming @paxpia/core's participation authoring helpers. Web + mobile
+// both render this; the host owns the draft + persistence.
+export { ParticipationEditor } from './ParticipationEditor';
+export type { ParticipationEditorProps, AuthoredOverlayBlob } from './ParticipationEditor';
 export { DocOverlay } from './DocOverlay';
 export type { DocOverlayProps, DocAnnotationLayerProps } from './DocOverlay';
 export { DocChrome } from './DocChrome';
