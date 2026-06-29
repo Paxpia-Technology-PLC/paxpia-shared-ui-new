@@ -257,11 +257,21 @@ export function WhiteboardOverlay({
   // over, so the view mirrors what the streamer shows. With no presenter, snap to fit.
   // Skipped while taken over (honour the viewer's own focus). Mirrors DocOverlay.
   const lastPresenter = useRef<string>('');
+  // Tracks the prior takeover state so we can detect the takeover→follow EDGE (a
+  // resync). On that edge we MUST re-apply the streamer's transform even if its value
+  // is unchanged since takeover began — the value-equality guard below would otherwise
+  // early-return and strand the viewer at their local (desynced) pan/zoom. The bug: a
+  // resync must SNAP back to the streamer's values, not silently wait for the streamer
+  // to move before the view re-converges.
+  const wasTakenOver = useRef<boolean>(false);
   useEffect(() => {
+    const justResynced = wasTakenOver.current && !takenOver;
+    wasTakenOver.current = takenOver;
     if (takenOver) return;
     if (presenter) {
       const key = `${presenter.zoom}:${presenter.panX}:${presenter.panY}`;
-      if (key === lastPresenter.current) return;
+      // Skip the redundant re-apply ONLY during normal follow; a resync forces it through.
+      if (!justResynced && key === lastPresenter.current) return;
       lastPresenter.current = key;
       setVp(
         clampPan(
@@ -269,6 +279,11 @@ export function WhiteboardOverlay({
           containerRef.current,
         ),
       );
+    } else if (justResynced) {
+      // Resync with no streamer transform → snap straight back to fit (the streamer's
+      // effective default), never leave the viewer on their local zoom/pan.
+      lastPresenter.current = '';
+      setVp(fitViewport());
     } else {
       setVp((v) => clampPan(v, containerRef.current));
     }
