@@ -48,6 +48,13 @@ export interface DocChromeProps {
    *  render annotations but can't draw), so the pen pill is operator-only by
    *  construction. Omit to hide the pen toggle entirely (every viewer surface). */
   onAnnToggle?: (next: boolean) => void;
+  /** PREVIEW / READ-ONLY (WI-14): a stripped-down doc chrome for a non-operator
+   *  rehearsal/preview surface. When true, EVERY operator affordance is hidden — the
+   *  zoom strip, the single/scroll mode toggle, the annotation pen, and the
+   *  fullscreen/refit control — leaving ONLY the filename + "X / Y" and (when
+   *  `onPageNav` is supplied) the multi-page prev/next arrows a viewer needs to flip
+   *  through pages. Additive: omit it and the chrome behaves exactly as before. */
+  preview?: boolean;
 }
 
 export function DocChrome({
@@ -62,15 +69,20 @@ export function DocChrome({
   onModeChange,
   annOn = false,
   onAnnToggle,
+  preview = false,
 }: DocChromeProps) {
   const canPrev = !!onPageNav && page > 0;
   const canNext = !!onPageNav && page < total - 1;
-  const showZoom = !!onZoom;
-  const showFullscreen = !!onFullscreen;
-  const showMode = !!onModeChange;
+  // PREVIEW (WI-14): strip every operator/transform affordance, keeping ONLY the
+  // filename + count + the multi-page prev/next a viewer needs. Each `show*` below
+  // is gated on `!preview` so a single flag collapses the chrome to its read-only core.
+  const showZoom = !preview && !!onZoom;
+  const showFullscreen = !preview && !!onFullscreen;
+  const showMode = !preview && !!onModeChange;
   // The annotation pen toggle is OPERATOR-ONLY: it shows iff the parent supplies
-  // `onAnnToggle` (a viewer surface never does — it renders annotations, can't draw).
-  const showAnn = !!onAnnToggle;
+  // `onAnnToggle` (a viewer surface never does — it renders annotations, can't draw),
+  // and never in preview.
+  const showAnn = !preview && !!onAnnToggle;
   const activeMode: DocViewMode = mode === 'scroll' ? 'scroll' : 'single';
   return (
     <View style={styles.bar}>

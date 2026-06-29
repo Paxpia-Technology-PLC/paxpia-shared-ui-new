@@ -94,6 +94,13 @@ export interface DocOverlayProps {
    *  absent, the doc renders exactly as before — annotation is purely additive. The
    *  STREAMER drives it (toggle + draw); VIEWERS render the strokes but cannot draw. */
   annotation?: DocAnnotationLayerProps;
+  /** PREVIEW / READ-ONLY (WI-14): render a stripped-down viewer with NO operator chrome —
+   *  the zoom strip, single/scroll mode toggle, annotation pen, and fullscreen/refit are
+   *  all hidden via `DocChrome preview`; only the filename + "X / Y" and (when `onPageNav`
+   *  is supplied) the multi-page prev/next remain. Use it for the material-preview surface
+   *  ("basically the live doc components with the operator controls removed"). Additive:
+   *  omit it and the shell behaves exactly as the live usage. */
+  preview?: boolean;
 }
 
 /** The annotation-layer slice of `DocOverlayProps`. Shared by the streamer (toggle +
@@ -140,6 +147,7 @@ export function DocOverlay({
   chrome,
   leaf,
   annotation,
+  preview = false,
 }: DocOverlayProps) {
   const { ImageLeaf, WebViewHost } = leaf;
   const { title, page, pageCount, src, kind } = plan;
@@ -527,15 +535,19 @@ export function DocOverlay({
         page={displayPage}
         total={effectiveTotal}
         scale={vp.scale}
-        onZoom={zoomable ? buttonZoom : undefined}
-        onFullscreen={zoomable && chrome?.fullscreen !== false ? refit : undefined}
+        // PREVIEW (WI-14): never offer zoom/fullscreen/mode/annotation in the stripped
+        // preview chrome; `preview` below collapses the chrome to filename + count +
+        // (kept) multi-page prev/next regardless of these being supplied.
+        onZoom={!preview && zoomable ? buttonZoom : undefined}
+        onFullscreen={!preview && zoomable && chrome?.fullscreen !== false ? refit : undefined}
         onPageNav={onPageNav}
         mode={viewMode}
-        onModeChange={supportsMode ? changeMode : undefined}
+        onModeChange={!preview && supportsMode ? changeMode : undefined}
         // ANNOTATION (streamer-only): the pen pill shows iff `onToggle` is wired (operator).
         // Viewers render annotations from `annotation.strokes` but never get this control.
         annOn={annotation?.on ?? false}
-        onAnnToggle={annotation?.onToggle}
+        onAnnToggle={preview ? undefined : annotation?.onToggle}
+        preview={preview}
       />
     </View>
   );
