@@ -14,7 +14,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "baseUrl": ".",
+   
     "paths": {
       // The package is authored against React Native's REAL types. We reuse the
       // exact RN 0.84 typings the mobile app installs (React 19 baseline), so the
