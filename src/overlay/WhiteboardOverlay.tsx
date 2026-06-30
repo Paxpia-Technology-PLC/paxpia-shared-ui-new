@@ -351,16 +351,16 @@ export function WhiteboardOverlay({
     [payload.canvas, payload.backgroundUrl, strokes, frameEditable, transparent, penColor, penWidth],
   );
 
-  // WI-9 TOUCH CAPTURE: while the operator is DRAWING (the frame is editable, not nav), the
-  // board must OWN its touches so a parent RN ScrollView / gesture can't steal the swipe and
-  // scroll ("you can see it slash the top" → broken strokes). The frame View claims the JS
-  // responder on touch-start/move when drawing, blocking any ancestor scroll from becoming
-  // responder. (Belt-and-braces with the HTML's `touch-action:none` + the WebView's
-  // `scrollEnabled={false}` — the native side; this is the RN-responder side.) In NAV mode we
-  // DON'T claim, so the shared pan/zoom + any intentional parent interaction still work, and a
-  // viewer frame never claims (it isn't capturing a pen).
-  const claimTouch = frameEditable;
-  const claimResponder = () => claimTouch;
+  // WI-9 (revised — continuous-draw regression fix): the editable board does NOT claim the RN
+  // JS responder. On Android a parent View seizing the responder over the native WebView
+  // dispatches ACTION_CANCEL to it, which fires `pointercancel` mid-drag and aborts the stroke
+  // after its first point — the "specks / dots instead of a continuous line" regression. Native
+  // gesture ownership already lives where it belongs: the HTML's `touch-action:none` + the host
+  // WebView's `scrollEnabled={false}` (single mode) stop any native scroll-steal, and WB_EDIT's
+  // 1-finger-draw / 2-finger-pan arbitration owns the rest. There is no ScrollView ancestor in
+  // the studio preview/live path, so nothing needs the responder block. (If a future surface
+  // ever wraps the board in a scroller, disable THAT scroller while drawing — never claim the
+  // responder on a parent of the WebView.)
 
   // Undo greys out when there's nothing to undo; redo is parent-driven (it owns the stack).
   const canUndo = (strokes?.length ?? 0) > 0;
@@ -378,15 +378,7 @@ export function WhiteboardOverlay({
           applies the shared {scale,panX,panY} transform internally and reports local
           gestures + draws + capture back via onReport. Ghosted (greyed) when the operator
           has hidden the overlay from viewers — they still author it. */}
-      <View
-        style={[styles.frameFill, ghosted && styles.frameGhosted]}
-        // WI-9: claim the JS responder while DRAWING so a parent ScrollView/gesture can't
-        // steal the swipe (no-op on web; the real native capture is the HTML touch-action +
-        // the WebView scrollEnabled=false). Capture-phase so we win over a scrolling ancestor.
-        onStartShouldSetResponderCapture={claimResponder}
-        onMoveShouldSetResponderCapture={claimResponder}
-        onResponderTerminationRequest={() => !claimTouch}
-      >
+      <View style={[styles.frameFill, ghosted && styles.frameGhosted]}>
         <WebViewHost
           html={html}
           transform={vp}
