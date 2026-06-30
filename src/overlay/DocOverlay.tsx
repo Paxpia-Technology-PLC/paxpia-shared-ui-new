@@ -144,7 +144,6 @@ export function DocOverlay({
   onPageNav,
   mode,
   onModeChange,
-  chrome,
   leaf,
   annotation,
   preview = false,
@@ -318,40 +317,72 @@ export function DocOverlay({
   // `lastDrag` tracks the cumulative dx/dy the responder reported so we can pan by the
   // per-frame delta (PanResponder gives cumulative offsets from grant).
   const lastDrag = useRef({ x: 0, y: 0 });
+  const pinchDist = useRef<number | null>(null); // last two-finger distance (pinch)
+  const lastTapTs = useRef(0);                    // for double-tap detection
+  const lastZoom = useRef(2.2);                   // last non-default zoom (double-tap toggle)
   const panResponder = useRef<PanResponderInstance>(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      // Claim the gesture only when zoomed in AND the finger actually MOVES — a tap
-      // (no move) is never claimed, so it falls through (e.g. double-tap to refit).
-      onMoveShouldSetPanResponder: (_e, g) =>
-        vpRef.current.scale > 1 && (Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2),
-      onPanResponderGrant: () => markTakeover(),
-      onPanResponderMove: (_e, g) => {
-        // PanResponder reports CUMULATIVE dx/dy from grant; pan by the per-frame delta.
+      // Claim on START so we can detect a double-tap + begin a pinch. A BARE tap (or a
+      // drag at fit) does NOTHING and never calls markTakeover — only a real pinch / pan /
+      // double-tap-zoom acts, so touching the doc doesn't desync a viewer.
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (e, g) =>
+        vpRef.current.scale > 1 ||
+        (e.nativeEvent.touches?.length ?? 0) >= 2 ||
+        Math.abs(g.dx) > 2 || Math.abs(g.dy) > 2,
+      onPanResponderGrant: () => { lastDrag.current = { x: 0, y: 0 }; pinchDist.current = null; },
+      onPanResponderMove: (e, g) => {
+        const touches = e.nativeEvent.touches;
+        if (touches && touches.length >= 2) {
+          // PINCH-TO-ZOOM (centre-anchored, reuses the proven button-zoom math): apply the
+          // incremental two-finger distance ratio. This is the image path's pinch; PDF/EPUB
+          // pinch is in the WebView (docHtml.ts). Parity: one zoom model, every surface.
+          const t0 = touches[0];
+          const t1 = touches[1];
+          const d = Math.hypot((t0.pageX ?? 0) - (t1.pageX ?? 0), (t0.pageY ?? 0) - (t1.pageY ?? 0));
+          if (pinchDist.current && pinchDist.current > 0 && d > 0) {
+            markTakeover();
+            const ratio = d / pinchDist.current;
+            setVp((v) => zoomByFactor(v, ratio, containerRef.current));
+          }
+          pinchDist.current = d;
+          lastDrag.current = { x: g.dx, y: g.dy }; // keep the pan baseline aligned for a 2→1 handoff
+          return;
+        }
+        pinchDist.current = null;
+        if (vpRef.current.scale <= 1) return; // single-finger pan only when zoomed in
         const dx = g.dx - lastDrag.current.x;
         const dy = g.dy - lastDrag.current.y;
         lastDrag.current = { x: g.dx, y: g.dy };
+        markTakeover();
         setVp((v) => panBy(v, dx, dy, containerRef.current));
       },
-      onPanResponderRelease: () => {
+      onPanResponderRelease: (_e, g) => {
+        const moved = Math.abs(g.dx) > 6 || Math.abs(g.dy) > 6;
+        if (!moved && pinchDist.current == null) {
+          // DOUBLE-TAP: at default → restore the last non-default zoom (first time 2.2x);
+          // else store the current zoom and return to default. Mirrors the WebView.
+          const now = Date.now();
+          if (now - lastTapTs.current < 300) {
+            markTakeover();
+            if (vpRef.current.scale <= 1.01) {
+              const target = lastZoom.current > 1.01 ? lastZoom.current : 2.2;
+              setVp((v) => zoomByFactor(v, target / Math.max(v.scale, 0.0001), containerRef.current));
+            } else {
+              lastZoom.current = vpRef.current.scale;
+              setVp(fitViewport());
+            }
+            lastTapTs.current = 0;
+          } else {
+            lastTapTs.current = now;
+          }
+        }
         lastDrag.current = { x: 0, y: 0 };
+        pinchDist.current = null;
       },
-      onPanResponderTerminate: () => {
-        lastDrag.current = { x: 0, y: 0 };
-      },
+      onPanResponderTerminate: () => { lastDrag.current = { x: 0, y: 0 }; pinchDist.current = null; },
     }),
   ).current;
-
-  // ± zoom (the chrome buttons) — zoom about the container CENTRE + mark takeover.
-  const buttonZoom = (factor: number) => {
-    markTakeover();
-    setVp((v) => zoomByFactor(v, factor, containerRef.current));
-  };
-  // Fullscreen/refit — a taken-over viewer resyncs; otherwise reset to fit.
-  const refit = () => {
-    if (isViewer && takenOverRef.current) onResync?.();
-    else setVp(fitViewport());
-  };
 
   const transformStyle = {
     transform: [{ translateX: vp.panX }, { translateY: vp.panY }, { scale: vp.scale }],
@@ -392,10 +423,6 @@ export function DocOverlay({
       setVp(clampPan({ scale: clampDocZoom(r.s), panX: r.x, panY: r.y }, containerRef.current));
     }
   };
-
-  // Zoom controls show for the image path AND for PDF/EPUB in single mode (the frame now
-  // honours the shared transform); scroll mode is native-scrolled, so no zoom there.
-  const zoomable = isImage || (isFrame && viewMode === 'single');
 
   // SCROLL-POSITION SYNC (§2) — the WITHIN-section fraction a FOLLOWING viewer should
   // converge to. The streamer broadcasts a single "pages-as-float" `scrollPos` (section +
@@ -553,8 +580,10 @@ export function DocOverlay({
         // PREVIEW (WI-14): never offer zoom/fullscreen/mode/annotation in the stripped
         // preview chrome; `preview` below collapses the chrome to filename + count +
         // (kept) multi-page prev/next regardless of these being supplied.
-        onZoom={!preview && zoomable ? buttonZoom : undefined}
-        onFullscreen={!preview && zoomable && chrome?.fullscreen !== false ? refit : undefined}
+        // Zoom +/- and the refit button are REMOVED (Noel): pinch + double-tap fully
+        // replace them. A taken-over viewer resyncs via the out-of-sync banner above.
+        onZoom={undefined}
+        onFullscreen={undefined}
         onPageNav={onPageNav}
         mode={viewMode}
         onModeChange={!preview && supportsMode ? changeMode : undefined}
