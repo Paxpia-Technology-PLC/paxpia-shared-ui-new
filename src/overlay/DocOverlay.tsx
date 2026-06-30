@@ -268,7 +268,11 @@ export function DocOverlay({
     // scroll mode is the frame's own native scroll — there's no shared transform to
     // follow, so don't fire setVp (avoids needless re-renders fighting the scroller).
     if (isFrame && viewMode === 'scroll') return;
-    if (presenter) {
+    // A PRODUCER (onPresenter supplied) is the SOURCE of the transform — it must NEVER follow
+    // a presenter (its own broadcast), or presenter→setVp→onPresenter→setDocPresenter→presenter
+    // loops forever ("Maximum update depth exceeded" → black live screen). Only a follower
+    // (viewer, no onPresenter) applies the presenter.
+    if (presenter && !onPresenter) {
       const key = `${presenter.zoom}:${presenter.panX}:${presenter.panY}:${page}`;
       // Skip the redundant re-apply ONLY during normal follow; a resync forces it through.
       if (!justResynced && key === lastPresenter.current) return;
