@@ -32,6 +32,12 @@ export interface ThreadViewProps {
   onCancelReply?: () => void;
   authed?: boolean;
   onRequireAuth?: () => void;
+  /** Retry an own message that failed to send (`send_status === 'failed'`). */
+  onRetry?: (m: Message) => void;
+  /** Fire a light haptic on send (mobile injects the native impact; web no-ops). */
+  onHapticSend?: () => void;
+  /** Composer visual variant — 'overlay' for the compact live-stream chat input. */
+  composerVariant?: 'default' | 'overlay';
 }
 
 interface ThreadRow {
@@ -58,12 +64,32 @@ export function ThreadView({
   onCancelReply,
   authed = true,
   onRequireAuth,
+  onRetry,
+  onHapticSend,
+  composerVariant = 'default',
 }: ThreadViewProps) {
   const listRef = useRef<FlatList<ThreadRow>>(null);
   const peer = dmPeer(thread, selfId);
   const online = peer?.is_online ?? false;
   const title = threadTitle(thread, selfId);
   const isGroup = thread.kind === 'group';
+
+  // Read-receipt boundary for OWN messages: the id the OTHER side has read up to.
+  // In a DM that's the peer's `last_read_message_id`; in a group we take the
+  // furthest-read id across everyone but self (i.e. read once ANY recipient has).
+  // Everything sent at-or-before that id, by us, shows a double (read) tick.
+  const readUpToId = useMemo(() => {
+    const others = (thread.participants ?? []).filter((p) => p.user_id !== selfId);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (others.some((p) => p.last_read_message_id === messages[i].id)) return messages[i].id;
+    }
+    return undefined;
+  }, [thread.participants, messages, selfId]);
+
+  const readIndex = useMemo(
+    () => (readUpToId ? messages.findIndex((m) => m.id === readUpToId) : -1),
+    [messages, readUpToId],
+  );
 
   // Precompute show-sender flags (group threads, first of a run from a sender).
   const rows = useMemo<ThreadRow[]>(
@@ -112,18 +138,20 @@ export function ThreadView({
         data={rows}
         keyExtractor={(r) => r.m.id}
         onEndReachedThreshold={0.1}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <MessageRenderer
             message={item.m}
             mine={!!selfId && item.m.sender_id === selfId}
             showSender={item.showSender}
             senderLabel={senderLabel}
-            pending={item.m.id.startsWith('optimistic-')}
+            pending={item.m.id.startsWith('optimistic-') || item.m.send_status === 'sending'}
+            read={readIndex >= 0 && index <= readIndex}
             onReactionTap={(r) => onReact?.(item.m.id, r, !!item.m.reactions_summary?.find((x) => x.reaction === r)?.viewer_reacted)}
             onLongPress={onLongPressMessage}
             onPressVideo={onPressVideo}
             onPressRoomInvite={onPressRoomInvite}
             onPressVideoShare={onPressVideoShare}
+            onRetry={onRetry}
           />
         )}
         onScroll={({ nativeEvent }) => {
@@ -144,6 +172,8 @@ export function ThreadView({
         onCancelReply={onCancelReply}
         authed={authed}
         onRequireAuth={onRequireAuth}
+        onHaptic={onHapticSend}
+        variant={composerVariant}
         onAttachImage={() => {}}
         onAttachVoice={() => {}}
         onAttachMore={() => {}}

@@ -17,6 +17,18 @@ export const colors = {
   text: '#FFFFFF',
   textMuted: '#A0A0AD',
   border: 'rgba(255,255,255,0.08)',
+  // Chat accent — the mobile `Chat_Messaging_Camera` bubble/send/verified/receipt
+  // tint (`#249dd9`), lifted OUT of the component files into the token library so
+  // the branch look is preserved in ONE place (plan §1i: theme-tokenize #249dd9).
+  // Kept distinct from `brand` so a future re-theme can converge or diverge them
+  // without touching component code.
+  chatAccent: '#249DD9',
+  chatAccentText: '#FFFFFF',
+  // Presence dot (participant is_online) — a calm green, distinct from `live`.
+  online: '#4CAF50',
+  // A "delivered/read" receipt tick when it should read as confirmed (channel/DM
+  // read state); the sending/failed states derive from textMuted / live.
+  receipt: '#249DD9',
 } as const;
 
 export const radius = {

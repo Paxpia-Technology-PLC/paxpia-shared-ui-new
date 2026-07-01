@@ -16,7 +16,9 @@ import { absoluteFill, colors } from '../theme/tokens';
 
 export interface MessageRendererProps {
   message: Message;
-  /** True when the current user is the sender → right-aligned, brand bubble. */
+  /** True when the current user is the sender → right-aligned, brand bubble. The
+   *  host derives this by comparing `message.sender_id` against the REAL self id —
+   *  never a `'me'` literal (the mobile branch's bug this lift fixes). */
   mine: boolean;
   /** Show the sender label (group threads). Resolved name comes via senderLabel. */
   showSender?: boolean;
@@ -24,12 +26,39 @@ export interface MessageRendererProps {
   senderLabel?: (userId: string) => string;
   /** Render at reduced opacity for an optimistic / unsent message. */
   pending?: boolean;
+  /** For an own (`mine`) message: true once the recipient has READ it → the receipt
+   *  renders a double (read) tick vs a single (delivered) tick. The host derives it
+   *  from the peer's `last_read_message_id`; core carries no per-message read flag.
+   *  Ignored for others' messages. */
+  read?: boolean;
   onLongPress?: (m: Message) => void;
   onReactionTap?: (reaction: string) => void;
   onReplyTap?: (replyToMessageId: string) => void;
   onPressVideo?: (m: Message) => void;
   onPressRoomInvite?: (m: Message) => void;
   onPressVideoShare?: (m: Message) => void;
+  /** Retry an own message that failed to send (`send_status === 'failed'`). */
+  onRetry?: (m: Message) => void;
+}
+
+/** The receipt tick for an OWN message, folded from the mobile branch's checkmark:
+ *   • sending  → a clock glyph (optimistic, in flight)
+ *   • failed   → a retry affordance (tap → onRetry)
+ *   • read     → a double tick in the receipt tint
+ *   • delivered→ a single tick
+ *  Rendered on a white-on-brand bubble, so ticks are light. */
+function Receipt({ message, read, onRetry }: { message: Message; read?: boolean; onRetry?: (m: Message) => void }) {
+  if (message.send_status === 'sending') {
+    return <Text style={styles.receiptMuted}>🕓</Text>;
+  }
+  if (message.send_status === 'failed') {
+    return (
+      <Pressable onPress={() => onRetry?.(message)} accessibilityLabel="Retry send" hitSlop={8}>
+        <Text style={styles.receiptFailed}>⚠︎ retry</Text>
+      </Pressable>
+    );
+  }
+  return <Text style={[styles.receipt, read && styles.receiptRead]}>{read ? '✓✓' : '✓'}</Text>;
 }
 
 function fmtTime(unix: number): string {
@@ -113,12 +142,14 @@ export function MessageRenderer({
   showSender,
   senderLabel,
   pending,
+  read,
   onLongPress,
   onReactionTap,
   onReplyTap,
   onPressVideo,
   onPressRoomInvite,
   onPressVideoShare,
+  onRetry,
 }: MessageRendererProps) {
   const m = message;
 
@@ -241,6 +272,8 @@ export function MessageRenderer({
         </Pressable>
         <View style={[styles.metaRow, { justifyContent: mine ? 'flex-end' : 'flex-start' }]}>
           {!m.deleted_for_everyone ? <Text style={styles.time}>{fmtTime(m.created_at_unix)}</Text> : null}
+          {/* Receipt tick — own messages only (folded from the branch's checkmark). */}
+          {mine && !m.deleted_for_everyone ? <Receipt message={m} read={read} onRetry={onRetry} /> : null}
         </View>
         <ReactionStrip summaries={m.reactions_summary ?? []} onTap={onReactionTap} />
       </View>
@@ -255,9 +288,12 @@ const styles = StyleSheet.create({
   column: { maxWidth: '78%' },
   sender: { color: colors.textMuted, fontSize: 11, marginBottom: 2, marginLeft: 8 },
 
+  // Bubble geometry folded from the mobile branch's `ChatMessageBubble`: fully
+  // rounded top corners, and a FLAT bottom corner on the sender's side (a subtle
+  // chat "tail"). The mine/theirs tint is theme-tokenized (brand vs surfaceMuted).
   bubble: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, overflow: 'hidden' },
-  bubbleMine: { backgroundColor: BRAND, borderTopRightRadius: 4 },
-  bubbleTheirs: { backgroundColor: colors.surfaceMuted, borderTopLeftRadius: 4 },
+  bubbleMine: { backgroundColor: BRAND, borderBottomRightRadius: 4 },
+  bubbleTheirs: { backgroundColor: colors.surfaceMuted, borderBottomLeftRadius: 4 },
   bubbleMedia: { paddingHorizontal: 4, paddingVertical: 4 },
   pending: { opacity: 0.6 },
 
@@ -265,8 +301,14 @@ const styles = StyleSheet.create({
   deleted: { fontSize: 14, fontStyle: 'italic' },
   edited: { fontSize: 10, marginTop: 2 },
 
-  metaRow: { flexDirection: 'row', marginTop: 3, paddingHorizontal: 4 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', columnGap: 4, marginTop: 3, paddingHorizontal: 4 },
   time: { color: colors.textMuted, fontSize: 11 },
+  // Receipt ticks (own messages). `receipt` tint reads as delivered; `receiptRead`
+  // brightens the double-tick to the chat accent; failed uses the live/danger tone.
+  receipt: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+  receiptRead: { color: colors.receipt },
+  receiptMuted: { color: colors.textMuted, fontSize: 10 },
+  receiptFailed: { color: colors.live, fontSize: 11, fontWeight: '700' },
 
   media: { width: 220, aspectRatio: 1.2, borderRadius: 12, overflow: 'hidden', backgroundColor: 'rgba(127,127,127,0.18)', alignItems: 'center', justifyContent: 'center' },
   placeholder: { fontSize: 28, color: colors.textMuted },
