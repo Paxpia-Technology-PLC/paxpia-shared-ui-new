@@ -78,7 +78,7 @@ export function ChannelHeader({
   );
 }
 
-const BRAND = colors.brand;
+const BRAND = colors.chatAccent;
 
 const styles = StyleSheet.create({
   root: { flexDirection: 'row', alignItems: 'center', columnGap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, backgroundColor: colors.surface },
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   text: { flex: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center' },
   title: { color: colors.text, fontSize: 15, fontWeight: '700', flexShrink: 1 },
-  verified: { color: colors.verified, fontSize: 12, fontWeight: '800' },
+  verified: { color: colors.chatAccent, fontSize: 12, fontWeight: '800' },
   broadcastTag: { fontSize: 12 },
   sub: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', columnGap: 6 },

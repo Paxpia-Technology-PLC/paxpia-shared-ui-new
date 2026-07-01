@@ -142,7 +142,7 @@ export function MessageComposer({
   );
 }
 
-const BRAND = colors.brand;
+const BRAND = colors.chatAccent;
 const ACCENT = colors.chatAccent;
 
 const styles = StyleSheet.create({
@@ -155,13 +155,13 @@ const styles = StyleSheet.create({
   iconBtn: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
   icon: { fontSize: 18, color: colors.textMuted },
   // The input is a rounded pill with inline emoji / attach icons (branch look).
-  inputWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', columnGap: 4, backgroundColor: colors.surfaceMuted, borderRadius: 24, paddingHorizontal: 8, paddingVertical: 6, minHeight: 44 },
+  inputWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', columnGap: 4, backgroundColor: colors.card, borderRadius: 24, paddingHorizontal: 8, paddingVertical: 6, minHeight: 44 },
   inputWrapOverlay: { backgroundColor: 'rgba(0,0,0,0.35)' },
   pillIcon: { paddingHorizontal: 6, paddingVertical: 6, alignItems: 'center', justifyContent: 'center' },
   input: { flex: 1, color: colors.text, fontSize: 14, maxHeight: 120, paddingVertical: 6, paddingHorizontal: 4 },
   // Round send/mic button — the branch's `#249dd9` accent, tokenized. Send tint uses
   // the shared brand; the mic (empty-draft) rest state uses the chat accent.
-  sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   sendBtnOn: { backgroundColor: BRAND },
   sendBtnMic: { backgroundColor: ACCENT },
   sendIcon: { fontSize: 16, fontWeight: '700' },

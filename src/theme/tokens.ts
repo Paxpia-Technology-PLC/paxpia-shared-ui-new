@@ -14,8 +14,10 @@ export const colors = {
   verified: '#3B82F6',
   surface: '#1A1A22',
   surfaceMuted: '#2A2A35',
+  card: '#1E1E33',
   text: '#FFFFFF',
   textMuted: '#A0A0AD',
+  textSecondary: '#B0B0D0',
   border: 'rgba(255,255,255,0.08)',
   // Chat accent — the mobile `Chat_Messaging_Camera` bubble/send/verified/receipt
   // tint (`#249dd9`), lifted OUT of the component files into the token library so
@@ -34,6 +36,7 @@ export const colors = {
 export const radius = {
   sm: 6,
   md: 10,
+  lg: 14,
   pill: 999,
 } as const;
 

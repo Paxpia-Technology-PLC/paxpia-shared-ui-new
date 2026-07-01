@@ -95,7 +95,7 @@ export function ThreadList({
             keyExtractor={(t) => `o-${t.id}`}
             renderItem={({ item }) => (
               <Pressable style={styles.onlineItem} onPress={() => onSelect(item)}>
-                <Avatar uri={resolveAvatar?.(item) ?? item.avatar_url} name={threadTitle(item, selfId)} size={46} ring />
+                <Avatar uri={resolveAvatar?.(item) ?? item.avatar_url} name={threadTitle(item, selfId)} size={52} ring />
                 <Text style={styles.onlineName} numberOfLines={1}>
                   {threadTitle(item, selfId).split(' ')[0]}
                 </Text>
@@ -123,7 +123,7 @@ export function ThreadList({
           return (
             <Pressable style={[styles.rowOuter, active && styles.rowActive]} onPress={() => onSelect(item)}>
               <View>
-                <Avatar uri={resolveAvatar?.(item) ?? item.avatar_url} name={threadTitle(item, selfId)} size={44} />
+                <Avatar uri={resolveAvatar?.(item) ?? item.avatar_url} name={threadTitle(item, selfId)} size={52} />
                 {online ? <View style={styles.onlineDot} /> : null}
               </View>
               <View style={styles.rowBody}>
@@ -174,7 +174,7 @@ function relTime(unix: number): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
-const BRAND = colors.brand;
+const BRAND = colors.chatAccent;
 
 const styles = StyleSheet.create({
   root: { width: 300, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border, backgroundColor: colors.surface, flex: 1 },
@@ -198,9 +198,9 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1 },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
   titleWrap: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  rowTitle: { color: colors.text, fontSize: 14, fontWeight: '500', flexShrink: 1 },
+  rowTitle: { color: colors.text, fontSize: 16, fontWeight: '500', flexShrink: 1 },
   rowTitleUnread: { fontWeight: '700' },
-  verified: { color: colors.verified, fontSize: 12, fontWeight: '800' },
+  verified: { color: colors.chatAccent, fontSize: 12, fontWeight: '800' },
   muteIcon: { fontSize: 11, color: colors.textMuted },
   rowTime: { color: colors.textMuted, fontSize: 11, marginLeft: 6 },
   rowBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

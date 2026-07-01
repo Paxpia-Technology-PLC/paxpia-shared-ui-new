@@ -64,7 +64,7 @@ export function ThreadTabs({ activeTab, onChange, counts, tabs }: ThreadTabsProp
   );
 }
 
-const BRAND = colors.brand;
+const BRAND = colors.chatAccent;
 
 const styles = StyleSheet.create({
   root: { flexDirection: 'row', alignItems: 'center', columnGap: 8, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, backgroundColor: colors.surface },

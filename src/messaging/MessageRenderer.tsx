@@ -281,7 +281,7 @@ export function MessageRenderer({
   );
 }
 
-const BRAND = colors.brand;
+const BRAND = colors.chatAccent;
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', paddingHorizontal: 12, marginVertical: 2 },
@@ -291,18 +291,18 @@ const styles = StyleSheet.create({
   // Bubble geometry folded from the mobile branch's `ChatMessageBubble`: fully
   // rounded top corners, and a FLAT bottom corner on the sender's side (a subtle
   // chat "tail"). The mine/theirs tint is theme-tokenized (brand vs surfaceMuted).
-  bubble: { borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, overflow: 'hidden' },
-  bubbleMine: { backgroundColor: BRAND, borderBottomRightRadius: 4 },
-  bubbleTheirs: { backgroundColor: colors.surfaceMuted, borderBottomLeftRadius: 4 },
+  bubble: { borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, overflow: 'hidden' },
+  bubbleMine: { backgroundColor: BRAND, borderBottomRightRadius: 0 },
+  bubbleTheirs: { backgroundColor: colors.card, borderBottomLeftRadius: 0 },
   bubbleMedia: { paddingHorizontal: 4, paddingVertical: 4 },
   pending: { opacity: 0.6 },
 
-  text: { fontSize: 14, lineHeight: 20 },
+  text: { fontSize: 15, lineHeight: 20 },
   deleted: { fontSize: 14, fontStyle: 'italic' },
   edited: { fontSize: 10, marginTop: 2 },
 
   metaRow: { flexDirection: 'row', alignItems: 'center', columnGap: 4, marginTop: 3, paddingHorizontal: 4 },
-  time: { color: colors.textMuted, fontSize: 11 },
+  time: { color: colors.textMuted, fontSize: 10 },
   // Receipt ticks (own messages). `receipt` tint reads as delivered; `receiptRead`
   // brightens the double-tick to the chat accent; failed uses the live/danger tone.
   receipt: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },

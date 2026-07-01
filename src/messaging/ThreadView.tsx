@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   headerTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
   headerSub: { color: colors.textMuted, fontSize: 12 },
-  headerSubOnline: { color: '#22c55e' },
+  headerSubOnline: { color: colors.online },
   headerActions: { flexDirection: 'row', columnGap: 4 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   icon: { fontSize: 20, color: colors.text },
