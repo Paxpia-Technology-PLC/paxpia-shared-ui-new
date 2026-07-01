@@ -6,9 +6,10 @@
 
 import { useMemo, useRef } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { dmPeer, threadTitle, type Message, type Thread } from '@paxpia/core';
+import { canPost, dmPeer, threadTitle, type Message, type ParticipantRole, type Thread } from '@paxpia/core';
 import { Avatar } from '../components/Avatar';
 import { colors } from '../theme/tokens';
+import { ChannelHeader } from './ChannelHeader';
 import { MessageRenderer } from './MessageRenderer';
 import { MessageComposer, type ComposerReplyTarget } from './MessageComposer';
 
@@ -26,6 +27,15 @@ export interface ThreadViewProps {
   onPressRoomInvite?: (m: Message) => void;
   onPressVideoShare?: (m: Message) => void;
   onCall?: (kind: 'voice' | 'video') => void;
+  /** The caller's role in this thread. Gates the composer: a channel `member` can
+   *  read + react but NOT post (plan §1a) → a read-only notice replaces the input.
+   *  dm/group always post. Also drives the channel header's broadcast affordance. */
+  callerRole?: ParticipantRole | string;
+  /** Channel only: open the broadcast composer (owner/admin). Optional — when omitted
+   *  the always-visible composer IS the post affordance, so no separate button shows. */
+  onBroadcast?: () => void;
+  /** Open thread / channel info (header tap → e.g. member management). */
+  onInfo?: () => void;
   onLoadOlder?: () => void;
   replyTo?: ComposerReplyTarget | null;
   onReply?: (m: Message) => void;
@@ -59,6 +69,9 @@ export function ThreadView({
   onPressRoomInvite,
   onPressVideoShare,
   onCall,
+  callerRole,
+  onBroadcast,
+  onInfo,
   onLoadOlder,
   replyTo,
   onCancelReply,
@@ -73,6 +86,11 @@ export function ThreadView({
   const online = peer?.is_online ?? false;
   const title = threadTitle(thread, selfId);
   const isGroup = thread.kind === 'group';
+  const isChannel = thread.kind === 'channel';
+  // Posting gate (plan §1a): a channel `member` reads + reacts but cannot post → we
+  // swap the composer for a read-only notice; dm/group always post. The server
+  // re-enforces this (403 `channel_readonly`), so this is UX, not security.
+  const canWrite = isChannel ? canPost('channel', callerRole) : true;
 
   // Read-receipt boundary for OWN messages: the id the OTHER side has read up to.
   // In a DM that's the peer's `last_read_message_id`; in a group we take the
@@ -104,32 +122,46 @@ export function ThreadView({
 
   return (
     <View style={styles.root}>
-      <View style={styles.header}>
-        {onBack ? (
-          <Pressable style={styles.iconBtn} onPress={onBack} accessibilityLabel="Back">
-            <Text style={styles.icon}>‹</Text>
-          </Pressable>
-        ) : null}
-        <Avatar uri={resolveAvatar?.(thread) ?? thread.avatar_url} name={title} size={40} />
-        <View style={styles.headerText}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {title}
-          </Text>
-          <Text style={[styles.headerSub, online && styles.headerSubOnline]}>{online ? 'Active now' : isGroup ? `${thread.participants?.length ?? 0} members` : 'Offline'}</Text>
-        </View>
-        <View style={styles.headerActions}>
-          {onCall ? (
-            <>
-              <Pressable style={styles.iconBtn} onPress={() => onCall('voice')} accessibilityLabel="Call">
-                <Text style={styles.icon}>📞</Text>
-              </Pressable>
-              <Pressable style={styles.iconBtn} onPress={() => onCall('video')} accessibilityLabel="Video call">
-                <Text style={styles.icon}>📹</Text>
-              </Pressable>
-            </>
+      {isChannel ? (
+        // A broadcast channel gets its own header (subscriber count + 📢 + owner/admin
+        // broadcast affordance) instead of the DM/group presence header.
+        <ChannelHeader
+          thread={thread}
+          selfId={selfId}
+          callerRole={callerRole}
+          resolveAvatar={resolveAvatar}
+          onBack={onBack}
+          onBroadcast={onBroadcast}
+          onInfo={onInfo}
+        />
+      ) : (
+        <Pressable style={styles.header} onPress={onInfo} disabled={!onInfo} accessibilityLabel="Conversation info">
+          {onBack ? (
+            <Pressable style={styles.iconBtn} onPress={onBack} accessibilityLabel="Back">
+              <Text style={styles.icon}>‹</Text>
+            </Pressable>
           ) : null}
-        </View>
-      </View>
+          <Avatar uri={resolveAvatar?.(thread) ?? thread.avatar_url} name={title} size={40} />
+          <View style={styles.headerText}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {title}
+            </Text>
+            <Text style={[styles.headerSub, online && styles.headerSubOnline]}>{online ? 'Active now' : isGroup ? `${thread.participants?.length ?? 0} members` : 'Offline'}</Text>
+          </View>
+          <View style={styles.headerActions}>
+            {onCall ? (
+              <>
+                <Pressable style={styles.iconBtn} onPress={() => onCall('voice')} accessibilityLabel="Call">
+                  <Text style={styles.icon}>📞</Text>
+                </Pressable>
+                <Pressable style={styles.iconBtn} onPress={() => onCall('video')} accessibilityLabel="Video call">
+                  <Text style={styles.icon}>📹</Text>
+                </Pressable>
+              </>
+            ) : null}
+          </View>
+        </Pressable>
+      )}
 
       <FlatList
         ref={listRef}
@@ -166,18 +198,26 @@ export function ThreadView({
         }
       />
 
-      <MessageComposer
-        onSend={onSend}
-        replyTo={replyTo}
-        onCancelReply={onCancelReply}
-        authed={authed}
-        onRequireAuth={onRequireAuth}
-        onHaptic={onHapticSend}
-        variant={composerVariant}
-        onAttachImage={() => {}}
-        onAttachVoice={() => {}}
-        onAttachMore={() => {}}
-      />
+      {canWrite ? (
+        <MessageComposer
+          onSend={onSend}
+          replyTo={replyTo}
+          onCancelReply={onCancelReply}
+          authed={authed}
+          onRequireAuth={onRequireAuth}
+          onHaptic={onHapticSend}
+          variant={composerVariant}
+          onAttachImage={() => {}}
+          onAttachVoice={() => {}}
+          onAttachMore={() => {}}
+        />
+      ) : (
+        // Channel member (read-only): the server would 403 a post, so we don't show
+        // an input — a passive notice instead. They can still react (MessageRenderer).
+        <View style={styles.readOnly}>
+          <Text style={styles.readOnlyText}>🔒 Only admins can post in this channel</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -210,6 +250,10 @@ const styles = StyleSheet.create({
   listContent: { paddingVertical: 16 },
   emptyThread: { padding: 48, alignItems: 'center' },
   emptyThreadText: { color: colors.textMuted, fontSize: 14 },
+
+  // Channel read-only notice (shown to a channel `member` in place of the composer).
+  readOnly: { paddingHorizontal: 16, paddingVertical: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, alignItems: 'center', backgroundColor: colors.surface },
+  readOnlyText: { color: colors.textMuted, fontSize: 13 },
 
   emptyPane: { flex: 1, alignItems: 'center', justifyContent: 'center', rowGap: 12, backgroundColor: colors.surface },
   emptyIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
