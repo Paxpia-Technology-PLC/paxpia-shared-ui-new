@@ -22,6 +22,7 @@
 // when its tally increments. The hooks live in the shared `./anim` module so the streamer
 // preview + every viewer + web + mobile run the EXACT same animation.
 
+import { type ReactNode } from 'react';
 import { View, Text, Pressable, Animated, StyleSheet } from 'react-native';
 import {
   pct,
@@ -283,18 +284,68 @@ export function QuizOverlay({ overlay, view }: { overlay: OverlayInstance<QuizPa
 }
 
 /** The ONE participation dispatcher — poll / quiz / vote-button. Consumed by
- *  `OverlayRenderer`. Non-participation kinds are not this component's concern. */
-export function ParticipationOverlay({ overlay, view }: { overlay: OverlayInstance; view: OverlayViewProps }) {
+ *  `OverlayRenderer`. Non-participation kinds are not this component's concern.
+ *
+ *  OPERATOR affordances (additive, viewer is unaffected when both are omitted): pass
+ *  `onRefresh` to show a `↻` reset button in a compact title bar, and `onExpand` to make
+ *  that bar tappable → a fullscreen results view (the vote options keep their own taps, so
+ *  the header is the "press inside the overlay" target). Keeping the count + reset + expand
+ *  INSIDE the overlay is the limited-real-estate design (Noel): the component carries its
+ *  own controls, and the fullscreen view is where future detail (voter lists, members) goes.
+ *  `expanded` marks the fullscreen instance (it drops the expand icon). */
+export function ParticipationOverlay({
+  overlay,
+  view,
+  onRefresh,
+  onExpand,
+  expanded = false,
+}: {
+  overlay: OverlayInstance;
+  view: OverlayViewProps;
+  onRefresh?: () => void;
+  onExpand?: () => void;
+  expanded?: boolean;
+}) {
+  let body: ReactNode = null;
   switch (overlay.kind) {
     case 'poll':
-      return <PollOverlay overlay={overlay as OverlayInstance<PollPayload>} view={view} />;
+      body = <PollOverlay overlay={overlay as OverlayInstance<PollPayload>} view={view} />;
+      break;
     case 'vote-button':
-      return <VoteButtonOverlay overlay={overlay as OverlayInstance<VoteButtonPayload>} view={view} />;
+      body = <VoteButtonOverlay overlay={overlay as OverlayInstance<VoteButtonPayload>} view={view} />;
+      break;
     case 'quiz':
-      return <QuizOverlay overlay={overlay as OverlayInstance<QuizPayload>} view={view} />;
+      body = <QuizOverlay overlay={overlay as OverlayInstance<QuizPayload>} view={view} />;
+      break;
     default:
       return null;
   }
+
+  // Viewer (no operator callbacks): render the body exactly as before.
+  if (!onRefresh && !onExpand) return body;
+
+  // Operator: a compact title bar (live count + ↻ reset + ⤢ expand) above the body. The bar
+  // is the tap target for fullscreen; the ↻ is a nested Pressable that owns its own tap.
+  const votes = `${view.total} ${view.total === 1 ? 'vote' : 'votes'}`;
+  return (
+    <View style={[styles.opStack, expanded && styles.opStackExpanded]} pointerEvents="box-none">
+      <Pressable style={styles.opHeader} onPress={onExpand} disabled={!onExpand}>
+        <View style={styles.opCount}>
+          <View style={styles.opLiveDot} />
+          <Text style={styles.opCountText}>{votes}</Text>
+        </View>
+        <View style={styles.opActions}>
+          {onExpand && !expanded ? <Text style={styles.opGlyph}>⤢</Text> : null}
+          {onRefresh ? (
+            <Pressable onPress={onRefresh} hitSlop={12} style={styles.opRefreshBtn} accessibilityRole="button" accessibilityLabel="Reset poll">
+              <Text style={styles.opRefreshGlyph}>↻</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </Pressable>
+      {body}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -303,6 +354,26 @@ const styles = StyleSheet.create({
   // stretch + full width EXPLICITLY so the participation content fills its rect the same way
   // on both — its children (question, bars, rows) then span the full width identically.
   stack: { width: '100%', alignSelf: 'stretch', flexDirection: 'column', alignItems: 'stretch', rowGap: 8 },
+
+  // Operator wrapper: the title bar + the participation body. `box-none` so taps pass to the
+  // header / vote options as appropriate.
+  opStack: { width: '100%', alignSelf: 'stretch', flexDirection: 'column', alignItems: 'stretch', rowGap: 8 },
+  opStackExpanded: { rowGap: 14 },
+  opHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingBottom: 6, marginBottom: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.14)',
+  },
+  opCount: { flexDirection: 'row', alignItems: 'center', columnGap: 6 },
+  opLiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: BRAND },
+  opCountText: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  opActions: { flexDirection: 'row', alignItems: 'center', columnGap: 10 },
+  opGlyph: { color: 'rgba(255,255,255,0.6)', fontSize: 15 },
+  opRefreshBtn: {
+    width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  opRefreshGlyph: { color: '#fff', fontSize: 15, fontWeight: '700', lineHeight: 18 },
   center: { textAlign: 'center' },
   question: { color: '#fff', fontSize: 14, fontWeight: '700' },
   optionBtn: {

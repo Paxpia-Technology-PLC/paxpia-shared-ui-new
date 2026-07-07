@@ -66,6 +66,10 @@ export interface OverlayRendererProps {
   onDocResync?: () => void;
   /** DOC AUTHORING: enables page nav. Omit on viewers so the page stays server-synced. */
   onDocPageNav?: (nextPage: number) => void;
+  /** DOC AUTHORING (operator): the streamer's local pan/zoom/page/scroll → broadcast to
+   *  viewers so they follow (and resync snaps to it). Supplying it marks the PRODUCER
+   *  surface (DocOverlay's `isProducer = !!onPresenter`). Omit on viewers (render-only). */
+  onDocPresenter?: (p: DocPresenterState) => void;
   /** DOC: the single/scroll view mode (rides the synced presenter). */
   docMode?: DocViewMode;
   /** DOC: called when the user toggles single ⇆ scroll (streamer rebroadcasts; viewer
@@ -118,6 +122,7 @@ export function OverlayRenderer({
   onDocTakeOver,
   onDocResync,
   onDocPageNav,
+  onDocPresenter,
   docMode,
   onDocModeChange,
   docAnnotation,
@@ -157,6 +162,7 @@ export function OverlayRenderer({
           onTakeOver={onDocTakeOver}
           onResync={onDocResync}
           onPageNav={onDocPageNav}
+          onPresenter={onDocPresenter}
           mode={docMode}
           onModeChange={onDocModeChange}
           annotation={docAnnotation}
