@@ -58,8 +58,14 @@ export function ThreadList({
     return [...pinned, ...rest];
   }, [threads, searchQuery, selfId, isPinned]);
 
+  // Presence is a 1:1 (DM) concept ONLY. A group/channel must NEVER surface an
+  // "online" chip or dot just because a member is online — gate on kind === 'dm'
+  // and exclude self. (Mirrors mobile ChatListItem.)
   const online = useMemo(
-    () => threads.filter((t) => (t.participants ?? []).some((p) => p.user_id !== selfId && p.is_online)),
+    () =>
+      threads.filter(
+        (t) => t.kind === 'dm' && (t.participants ?? []).some((p) => p.user_id !== selfId && p.is_online),
+      ),
     [threads, selfId],
   );
 
@@ -115,9 +121,10 @@ export function ThreadList({
           const muted = !!item.notification_muted;
           const pinned = isPinned?.(item) ?? false;
           const verified = isVerified?.(item) ?? false;
-          // Online = any NON-self participant currently online (folded from the
-          // branch's `is_online` dot; derived from core `Participant.is_online`).
-          const online = (item.participants ?? []).some((p) => p.user_id !== selfId && p.is_online);
+          // Online dot: DM ONLY. A group/channel never lights the dot even when a
+          // member is online (presence is a 1:1 concept). Excludes self.
+          const online =
+            item.kind === 'dm' && (item.participants ?? []).some((p) => p.user_id !== selfId && p.is_online);
           // Show a receipt tick when the LAST message is ours (delivered/read).
           const lastMine = !!selfId && item.last_message?.sender_id === selfId;
           return (
