@@ -52,6 +52,7 @@ import {
 import type { LeafAdapter } from './LeafAdapter';
 import { DocChrome } from './DocChrome';
 import { WhiteboardOverlay } from './WhiteboardOverlay';
+import { BookPageView } from '../book/BookPageView';
 
 export interface DocOverlayProps {
   /** The shared render plan for the CURRENT page (from core `resolveDocRender`). The
@@ -165,6 +166,9 @@ export function DocOverlay({
   const isPdf = kind === 'pdf';
   const isEpub = kind === 'epub';
   const isImage = kind === 'image';
+  // A written book's current chapter — text, not a file. Renders as its OWN leaf
+  // (scrolls itself, no pan/zoom transform, no frame/image gesture path at all).
+  const isBook = kind === 'book';
   // The IMAGE path is transformed RN-side (an Animated transform + PanResponder over a
   // native <Image>). PDF/EPUB are rendered in a frame (iframe/WebView) that owns its own
   // gesture→transform engine; the shell pushes the synced transform DOWN and receives
@@ -494,6 +498,11 @@ export function DocOverlay({
               <ImageLeaf src={src} loop />
             </Animated.View>
           </Animated.View>
+        ) : isBook && plan.book ? (
+          // BOOK: its own leaf entirely — no pan/zoom transform, no PanResponder, no
+          // frame WebView. It scrolls itself (pinching prose is the wrong gesture when
+          // scrolling is right).
+          <BookPageView page={plan.book} />
         ) : kind === 'placeholder' ? (
           // A non-URL placeholder page (a dev push before a render pipeline) — a
           // labelled card, never a blank slot.
