@@ -3,7 +3,7 @@
 // with the live coin balance, then the COIN_PACKAGES list (face + bonus coins, price,
 // BEST-VALUE badge on the popular pack), each row a buy button.
 //
-// It CONSUMES @paxpia/core/wallet (COIN_PACKAGES, coinsForPackage, the WalletState shape)
+// It-CONSUMES @paxpia/core/wallet (COIN_PACKAGES, coinsForPackage, the WalletState shape)
 // — it does NOT recreate the package list. PURE presentational: it reports `onPurchase(pkgId)`
 // up and does NO wallet mutation and NO IAP/payment transport. The host runs the real
 // purchase (Telebirr/Chapa/store IAP) then `creditCoins`/`purchasePackage` (idempotent by
