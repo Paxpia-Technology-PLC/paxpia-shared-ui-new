@@ -75,13 +75,12 @@ const INDENT_PX = 40;
 
 function timeAgo(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return `${s}s`;
+  if (s < 60) return 'now';
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   if (s < 604800) return `${Math.floor(s / 86400)}d`;
-  if (s < 2592000) return `${Math.floor(s / 604800)}w`;
-  if (s < 31536000) return `${Math.floor(s / 2592000)}mo`;
-  return `${Math.floor(s / 31536000)}y`;
+  if (s < 31449600) return `${Math.floor(s / 604800)}w`; // 52 weeks = 31449600 seconds
+  return `${Math.floor(s / 31449600)}y`;
 }
 
 /** One comment row: avatar + author + body + actions (reply/like) + replies toggle. */
@@ -97,6 +96,7 @@ function CommentRow({
   onEdit,
   onToggleReplies,
 }: {
+  key?: string | number;
   node: CommentNode;
   author: CommentAuthor;
   like: { count: number; liked: boolean };
@@ -213,7 +213,7 @@ export function CommentsPanel({
   const beginReply = (id: string, username: string, depth: number) => {
     if (onReply) onReply(id, username, depth);
     setMode({ kind: 'reply', id, username });
-    setText((t) => (t.startsWith(`@${username} `) ? t : `@${username} `));
+    setText((t: string) => (t.startsWith(`@${username} `) ? t : `@${username} `));
     onToggleReplies(id); // surface existing replies in context (host de-dupes)
   };
 
@@ -253,7 +253,7 @@ export function CommentsPanel({
       <ScrollView
         style={styles.list}
         contentContainerStyle={styles.listContent}
-        onScroll={({ nativeEvent }) => {
+        onScroll={({ nativeEvent }: any) => {
           const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
           if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 80) onEndReached?.();
         }}
@@ -312,7 +312,7 @@ export function CommentsPanel({
             }}
           />
           <Pressable
-            style={({ pressed }) => [
+            style={({ pressed }: any) => [
               styles.sendBtn,
               !text.trim() && styles.sendBtnDisabled,
               pressed && styles.pressed,

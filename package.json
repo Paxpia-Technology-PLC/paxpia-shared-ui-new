@@ -33,7 +33,7 @@
     }
   },
   "devDependencies": {
-    "@types/react": "^19.2.17",
+    "@types/react": "^19.2.18",
     "recharts": "^2.12.7",
     "typescript": "^5.9.3"
   },

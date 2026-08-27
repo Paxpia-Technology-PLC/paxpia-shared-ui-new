@@ -27,8 +27,8 @@
       // overlay/gate view components in this package render FROM core's pure model
       // (OverlayViewProps, GateState, DocRenderPlan, pct/foldOptimisticTally, the
       // svg set, docViewport math). Source-only; no build step.
-      "@paxpia/core": ["../paxpia-shared-core/src/index.ts"],
-      "@paxpia/core/*": ["../paxpia-shared-core/src/*"]
+      "@paxpia/core": ["../paxpia-shared-core-new/src/index.ts"],
+      "@paxpia/core/*": ["../paxpia-shared-core-new/src/*"]
     }
   },
   "include": ["src"]
