@@ -75,3 +75,46 @@ export const absoluteFill = {
   right: 0,
   bottom: 0,
 } as const;
+
+// ── Creator Hub palette (light + dark) ───────────────────────────────────────
+// The Creator Hub is NOT dark-only on either app: the website's
+// `src/creator/creator-theme.css` defines a `[data-theme='light']` twin for every
+// colour (and its header forbids going back to an always-dark hub), and mobile's
+// `creatorTheme` switches on `isDark`. Components rendered INSIDE the Creator Hub
+// (e.g. book/BookPicker) take a `scheme` and read from here, so they match the
+// screen they open over. Values are copied 1:1 from creator-theme.css (website),
+// `--c-*` → camelCase; keep the two in step. The `colors` above stay as they are
+// for the live-stage/overlay surfaces, which are dark by design.
+export const creatorColors = {
+  dark: {
+    bg: '#14121C',
+    surface: '#1E1B2A',
+    surfaceAlt: '#2A2638',
+    ink: '#F4F2FA',
+    inkMuted: '#A39CBE',
+    inkFaint: '#6F678A',
+    hairline: 'rgba(255, 255, 255, 0.09)',
+    accent: '#429ef5',
+    accentInk: '#7FC0FF',
+    accentWash: 'rgba(66, 158, 245, 0.18)',
+    onAccent: '#14121C',
+    danger: '#ff4d6d',
+  },
+  light: {
+    bg: '#F5F4FB',
+    surface: '#ffffff',
+    surfaceAlt: '#EFEAFE',
+    ink: '#14121C',
+    inkMuted: '#736C8C',
+    inkFaint: '#A39CBE',
+    hairline: '#E8E4F4',
+    accent: '#1f6fd1',
+    accentInk: '#0e4fa3',
+    accentWash: 'rgba(31, 111, 209, 0.1)',
+    onAccent: '#ffffff',
+    danger: '#dc2626',
+  },
+} as const;
+
+export type CreatorScheme = keyof typeof creatorColors;
+export type CreatorPalette = (typeof creatorColors)[CreatorScheme];
