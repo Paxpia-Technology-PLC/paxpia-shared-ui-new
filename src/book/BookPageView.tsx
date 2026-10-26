@@ -26,6 +26,16 @@ export interface BookPageViewProps {
 }
 
 export function BookPageView({ page, author, hideTitle = false }: BookPageViewProps) {
+  // An empty body (an unwritten chapter, or — with `hideTitle` — one whose
+  // only content was pictures the caller already reported as dropped) used
+  // to render NOTHING: no title (suppressed by `hideTitle`), no author, no
+  // markdown blocks (`MarkdownView` draws zero for blank input) — just this
+  // view's own translucent background, indistinguishable from a broken
+  // stream. Said honestly instead, the same discipline the caller already
+  // applies one level up for a dropped picture (`SessionPane.tsx`'s
+  // `bookNotice`) and the equivalent web pane already applies for this exact
+  // case.
+  const hasBody = page.body.trim() !== '';
   return (
     <ScrollView
       style={styles.root}
@@ -38,7 +48,11 @@ export function BookPageView({ page, author, hideTitle = false }: BookPageViewPr
           {author ? <Text style={styles.author} numberOfLines={1}>{author}</Text> : null}
         </View>
       )}
-      <MarkdownView source={page.body} />
+      {hasBody ? (
+        <MarkdownView source={page.body} />
+      ) : (
+        <Text style={styles.empty}>This chapter is empty — nothing has been written in it yet.</Text>
+      )}
     </ScrollView>
   );
 }
@@ -49,4 +63,5 @@ const styles = StyleSheet.create({
   header: { marginBottom: 16 },
   author: { color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 4 },
   chapterTitle: { color: 'rgba(255,255,255,0.95)', fontSize: 20, fontWeight: '800' },
+  empty: { color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: 24 },
 });
